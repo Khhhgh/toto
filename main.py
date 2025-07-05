@@ -236,7 +236,7 @@ async def handle_speed_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q, options, answer = random.choice(questions)
-    msg = f"❓ {q}
+    "msg = f"❓ {q}
 "
     for opt in options:
         msg += f"- {opt}
