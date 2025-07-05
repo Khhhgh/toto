@@ -236,11 +236,9 @@ async def handle_speed_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q, options, answer = random.choice(questions)
-    "msg = f"❓ {q}
-"
+    msg = f"❓ {q}\n"
     for opt in options:
-        msg += f"- {opt}
-"
+        msg += f"- {opt}\n"
     context.user_data["quiz_answer"] = answer
     await update.message.reply_text(msg.strip())
 
@@ -418,10 +416,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "account":
         await show_balance(update, context)
     elif query.data == "games":
-        await query.edit_message_text("🎮 استخدم الأوامر:
-/نرد - /خمن - /سؤال - /ايموجي - /رتب ...")
+        await query.edit_message_text("🎮 استخدم الأوامر:\n/نرد - /خمن - /سؤال - /ايموجي - /رتب ...")
     elif query.data == "tools":
-        await query.edit_message_text("🛠 أدوات الإدارة:
-/كتم - /طرد - /تقييد - /حظر ...")
+        await query.edit_message_text("🛠 أدوات الإدارة:\n/كتم - /طرد - /تقييد - /حظر ...")
 
 app.add_handler(CallbackQueryHandler(button_handler, pattern="^(account|games|tools)$"))
+
