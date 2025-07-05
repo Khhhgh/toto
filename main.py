@@ -421,4 +421,3 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🛠 أدوات الإدارة:\n/كتم - /طرد - /تقييد - /حظر ...")
 
 app.add_handler(CallbackQueryHandler(button_handler, pattern="^(account|games|tools)$"))
-
