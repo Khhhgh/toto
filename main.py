@@ -105,35 +105,33 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ تم الإرسال إلى {sent_count} مجموعة.\n❌ فشل الإرسال في {failed_count} مجموعة.")
 
-# زر عرض الأوامر
+# زر عرض الأوامر مع الرد على الضغط
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # مهم جداً ترد للزر!
 
     if query.data == "show_commands":
         await commands_list.show_commands(update, context)
 
-
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # /start
+    # أوامر بدء البوت والبث
     app.add_handler(CommandHandler("start", start))
-    # /broadcast
     app.add_handler(CommandHandler("broadcast", broadcast))
 
     # استقبال دخول البوت إلى المجموعات
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
 
-    # أوامر خاصة لازم تيجي أولاً
+    # أوامر النص الخاصة (الالعاب و الاوامر)
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^الالعاب$'), games.show_games))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^الاوامر$'), commands_list.show_commands))
 
-    # الأزرار (زر عرض الأوامر - الألعاب)
+    # أزرار التفاعل
     app.add_handler(CallbackQueryHandler(handle_buttons))
     app.add_handler(CallbackQueryHandler(games.handle_game_buttons))
 
-    # حماية (بعد الأوامر الخاصة)
+    # حماية النصوص بعد أوامر خاصة
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), protection.handle_text_commands))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), link_filter.link_chat_control))
 
