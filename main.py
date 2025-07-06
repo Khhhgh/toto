@@ -13,7 +13,7 @@ from telegram.error import BadRequest
 
 import admin  # استيراد ملف لوحة تحكم المالك (admin.py)
 import replies  # ملف الردود الجاهزة
-import spam  # ملف فلترة السبام (حماية)
+
 
 TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
 OWNER_ID = 8011996271
