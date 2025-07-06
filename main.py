@@ -1,59 +1,32 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     CallbackQueryHandler,
-    ContextTypes,
     filters,
 )
-import os
 import asyncio
+import os
 
-import replies
-import id_info
+import protection
+import games
+import link_filter
+import commands_list
+import replies  # ردود جاهزة
+import id_lock_handlers  # ملف إغلاق وفتح الايدي
 
 TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
-OWNER_ID = 8011996271
+OWNER_ID = 8011996271  # معرف مالك البوت
 
-ID_LOCK_FILE = "id_lock.txt"
 GROUPS_FILE = "groups.txt"
 
-
-def read_id_lock():
-    if not os.path.exists(ID_LOCK_FILE):
-        with open(ID_LOCK_FILE, "w") as f:
-            f.write("1")  # مفعّل بشكل افتراضي
-        return True
-    with open(ID_LOCK_FILE, "r") as f:
-        status = f.read().strip()
-    return status == "1"
-
-
-def write_id_lock(value: bool):
-    with open(ID_LOCK_FILE, "w") as f:
-        f.write("1" if value else "0")
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-
-    welcome_text = (
-        "اهلين انا ماريا↞ اختصاصي ادارة المجموعات من السبام والخ..↞ "
-        "كت تويت, يوتيوب, ساوند , واشياء كثير ..↞ "
-        "عشان تفعلني ارفعني اشراف وارسل تفعيل."
-    )
-
-    buttons = [
-        [InlineKeyboardButton("ضيفني لمجموعتك ✨😺", url=f"https://t.me/{context.bot.username}?startgroup=true")],
-        [InlineKeyboardButton("📩 راسل المطور", url="https://t.me/T_4IJ")],
-    ]
-    keyboard = InlineKeyboardMarkup(buttons)
-
-    await context.bot.send_message(chat_id=chat_id, text=welcome_text, reply_markup=keyboard)
-
-
+# حفظ المجموعات
 async def save_group(chat_id: int):
     if not os.path.exists(GROUPS_FILE):
         with open(GROUPS_FILE, "w") as f:
@@ -64,60 +37,100 @@ async def save_group(chat_id: int):
         with open(GROUPS_FILE, "a") as f:
             f.write(f"{chat_id}\n")
 
-
+# عند دخول البوت لمجموعة
 async def welcome_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.type in ["group", "supergroup"]:
         await save_group(chat.id)
 
-
-async def lock_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# رسالة الترحيب
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id != OWNER_ID:
-        await update.message.reply_text("❌ هذا الأمر للمالك فقط.")
-        return
-    write_id_lock(False)
-    await update.message.reply_text("✅ تم تعطيل الرد على كلمة ايدي.")
+    chat_id = update.effective_chat.id
 
+    welcome_text = (
+        "اهلين انا ماريا↞ اختصاصي ادارة المجموعات من السبام والخ..↞ كت تويت, يوتيوب, ساوند , واشياء كثير ..↞ عشان تفعلني ارفعني اشراف وارسل تفعيل."
+    )
 
-async def unlock_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != OWNER_ID:
-        await update.message.reply_text("❌ هذا الأمر للمالك فقط.")
-        return
-    write_id_lock(True)
-    await update.message.reply_text("✅ تم تفعيل الرد على كلمة ايدي.")
+    buttons = [
+        [InlineKeyboardButton("ضيفني لمجموعتك ✨😺", url=f"https://t.me/{context.bot.username}?startgroup=true")],
+        [InlineKeyboardButton("📩 راسل المطور", url="https://t.me/T_4IJ")],
+    ]
 
+    keyboard = InlineKeyboardMarkup(buttons)
+    await context.bot.send_message(chat_id=chat_id, text=welcome_text, reply_markup=keyboard)
 
-async def handle_id_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if read_id_lock():
-        await id_info.handle_id_command(update, context)
-    else:
-        # لا رد إذا معطل
-        pass
+# استقبال كلمة تفعيل في المجموعات
+async def activate_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    chat = update.effective_chat
+    user = update.effective_user
+    if msg.text == "تفعيل":
+        member = await chat.get_member(user.id)
+        if member.status in ["administrator", "creator"]:
+            await update.message.reply_text("تم تفعيل الكروب 😊")
+            await save_group(chat.id)
 
+# الرد على كلمة ايدي مع التحقق من القفل
+async def reply_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if id_lock_handlers.id_locked:
+        return  # مغلق لا يرد
 
-async def handle_general_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text.lower() == "ايدي":
-        return
-    reply = replies.get_reply(text)
-    if reply:
-        await update.message.reply_text(reply)
+    text = update.message.text
+    if text == "ايدي":
+        await id_lock_handlers.reply_to_id(update, context)
 
+# ردود جاهزة
+async def reply_to_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    response = replies.get_reply(text)
+    if response:
+        await update.message.reply_text(response)
+
+# زرار الألعاب بدون أزرار ان لاين (رسالة فقط)
+async def show_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "الالعاب":
+        games_list = (
+            "🎮 ألعاب البوت:\n"
+            "1. اكس او\n"
+            "2. خمن\n"
+            "3. الاسرع\n"
+            "\nارسل اسم اللعبة للبدء."
+        )
+        await update.message.reply_text(games_list)
+
+# بدء الألعاب حسب الاسم
+async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text in ["اكس او", "خمن", "الاسرع"]:
+        await games.start_game_by_name(update, context, text)
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # أوامر أساسية
     app.add_handler(CommandHandler("start", start))
+
+    # حفظ المجموعات عند انضمام البوت
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
 
-    app.add_handler(CommandHandler("قفل_الايدي", lock_id))
-    app.add_handler(CommandHandler("فتح_الايدي", unlock_id))
+    # تفعيل البوت بالكروب
+    app.add_handler(MessageHandler(filters.Regex(r'^تفعيل$'), activate_bot))
 
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^ايدي$'), handle_id_wrapper))
+    # ألعاب
+    app.add_handler(MessageHandler(filters.Regex(r'^الالعاب$'), show_games))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^(اكس او|خمن|الاسرع)$'), start_game))
 
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_general_replies))
+    # الرد على كلمة ايدي
+    app.add_handler(MessageHandler(filters.Regex(r'^ايدي$'), reply_id))
+
+    # الردود الجاهزة
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reply_to_messages))
+
+    # باقي الفلاتر
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), protection.handle_text_commands))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), link_filter.link_chat_control))
+    app.add_handler(MessageHandler(filters.ALL, link_filter.filter_messages))
 
     print("✅ البوت شغال...")
     app.run_polling()
