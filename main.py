@@ -15,7 +15,7 @@ import admin  # لوحة تحكم المالك
 import replies  # ملف الردود الجاهزة
 import spam  # ملف الحماية
 
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
 OWNER_ID = 8011996271
 
 USERS_FILE = "users.txt"
