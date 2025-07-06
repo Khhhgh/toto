@@ -1,130 +1,131 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 import random
 
-# ذاكرة مؤقتة لتخزين حالات المستخدم
-user_game_state = {}
+active_guess = {}
+active_fast = {}
+ttt_games = {}
 
-# عرض قائمة الألعاب
+# ===== لعبة خمن الرقم =====
+async def start_guess_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id in active_guess:
+        await update.message.reply_text("🎯 لعبة خمن شغالة بالفعل. حاول تخمين الرقم!")
+        return
+    number = random.randint(1, 20)
+    active_guess[chat_id] = number
+    await update.message.reply_text("🎯 بدأت لعبة خمن الرقم! اختر رقم بين 1 و 20")
+
+async def handle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in active_guess:
+        return
+    try:
+        guess = int(update.message.text.strip())
+    except ValueError:
+        return
+    correct = active_guess[chat_id]
+    if guess == correct:
+        await update.message.reply_text(f"🎉 مبروك! الرقم الصحيح هو {correct}.")
+        del active_guess[chat_id]
+    elif guess < correct:
+        await update.message.reply_text("🔼 أكبر")
+    else:
+        await update.message.reply_text("🔽 أصغر")
+
+# ===== لعبة الأسرع كتابة =====
+fast_words = [
+    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇",
+    "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚",
+    "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥸",
+    "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "☹️",
+    "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡",
+    "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓",
+    "🤗", "🤔", "🤭", "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄",
+    "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵",
+    "🤐", "🥴", "🤢", "🤮", "🤧", "😷"
+]
+
+async def start_fast_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id in active_fast:
+        await update.message.reply_text("⚡ لعبة الأسرع شغالة! اكتب الإيموجي بسرعة!")
+        return
+    word = random.choice(fast_words)
+    active_fast[chat_id] = word
+    await update.message.reply_text(f"📝 أرسل الإيموجي التالي بسرعة: {word}")
+
+async def handle_fast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in active_fast:
+        return
+    if update.message.text.strip() == active_fast[chat_id]:
+        await update.message.reply_text("🎉 أحسنت، أنت الأسرع!")
+        del active_fast[chat_id]
+
+# ===== لعبة اكس او =====
+TTT_SYMBOLS = ['❌', '⭕']
+
+async def start_ttt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id in ttt_games:
+        await update.message.reply_text("❌ لعبة اكس او شغالة حالياً")
+        return
+    ttt_games[chat_id] = {
+        "board": [' '] * 9,
+        "turn": 0
+    }
+    await update.message.reply_text("🎮 بدأت لعبة اكس او! اكتب رقم بين 1-9 لوضع الرمز.")
+    await display_board(update, context)
+
+async def handle_ttt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in ttt_games:
+        return
+    try:
+        pos = int(update.message.text.strip()) - 1
+        if not (0 <= pos <= 8):
+            return
+    except ValueError:
+        return
+    game = ttt_games[chat_id]
+    if game["board"][pos] != ' ':
+        await update.message.reply_text("❗ هذا المكان مأخوذ")
+        return
+    symbol = TTT_SYMBOLS[game["turn"] % 2]
+    game["board"][pos] = symbol
+    game["turn"] += 1
+    await display_board(update, context)
+    winner = check_winner(game["board"])
+    if winner:
+        await update.message.reply_text(f"🏆 الفائز: {winner}!")
+        del ttt_games[chat_id]
+    elif ' ' not in game["board"]:
+        await update.message.reply_text("🤝 تعادل!")
+        del ttt_games[chat_id]
+
+async def display_board(update, context):
+    chat_id = update.effective_chat.id
+    board = ttt_games[chat_id]["board"]
+    board_str = ""
+    for i in range(0, 9, 3):
+        row = [cell if cell != ' ' else str(i + j + 1) for j, cell in enumerate(board[i:i+3])]
+        board_str += ' | '.join(row) + "\\n"
+    await context.bot.send_message(chat_id=chat_id, text=board_str)
+
+def check_winner(board):
+    wins = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
+    for i,j,k in wins:
+        if board[i] == board[j] == board[k] != ' ':
+            return board[i]
+    return None
+
+# ===== قائمة الألعاب =====
 async def show_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    buttons = [
-        [InlineKeyboardButton("🎲 حجر ورقة مقص", callback_data="game_rps")],
-        [InlineKeyboardButton("🎯 تخمين رقم", callback_data="game_guess")],
-        [InlineKeyboardButton("🧠 سؤال عام", callback_data="game_quiz")],
-        [InlineKeyboardButton("⌨️ سرعة الكتابة", callback_data="game_typing")],
-        [InlineKeyboardButton("🔢 رياضيات", callback_data="game_math")],
-        [InlineKeyboardButton("😹 نكتة", callback_data="game_joke")],
-        [InlineKeyboardButton("🎵 كلمات أغاني", callback_data="game_lyrics")],
-        [InlineKeyboardButton("😼 لعبة كت", callback_data="game_cat")]
-    ]
-
-    keyboard = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text("🎮 اختر لعبة:", reply_markup=keyboard)
-
-# التعامل مع الضغط على الأزرار
-async def handle_game_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
-
-    game = query.data
-
-    # حجر ورقة مقص
-    if game == "game_rps":
-        choices = ["حجر", "ورقة", "مقص"]
-        bot_choice = random.choice(choices)
-        user_game_state[user_id] = {"game": "rps", "bot_choice": bot_choice}
-        await query.message.reply_text("✊✋✌️ اكتب: حجر أو ورقة أو مقص")
-
-    # تخمين رقم
-    elif game == "game_guess":
-        number = random.randint(1, 5)
-        user_game_state[user_id] = {"game": "guess", "number": number}
-        await query.message.reply_text("🎯 خمن رقم من 1 إلى 5!")
-
-    # سؤال عام
-    elif game == "game_quiz":
-        user_game_state[user_id] = {"game": "quiz", "answer": "طوكيو"}
-        await query.message.reply_text("🧠 ما هي عاصمة اليابان؟")
-
-    # سرعة الكتابة
-    elif game == "game_typing":
-        word = random.choice(["تفاحة", "قطار", "مدرسة", "برمجة"])
-        user_game_state[user_id] = {"game": "typing", "word": word}
-        await query.message.reply_text(f"⌨️ اكتب الكلمة التالية بأسرع وقت: {word}")
-
-    # رياضيات
-    elif game == "game_math":
-        a = random.randint(1, 10)
-        b = random.randint(1, 10)
-        user_game_state[user_id] = {"game": "math", "answer": str(a + b)}
-        await query.message.reply_text(f"🔢 ما ناتج: {a} + {b} ؟")
-
-    # نكتة
-    elif game == "game_joke":
-        jokes = [
-            "😂 واحد راح للدكتور قاله عيني بتدمع، قله غني لها.",
-            "🤣 واحد راح المدرسة متأخر، قاله المدير: ليش؟ قاله: الطريق طويل!",
-            "😹 مرة واحد نام بكير... صحى بدري، لقى الدنيا ليل!"
-        ]
-        await query.message.reply_text(random.choice(jokes))
-
-    # كلمات أغاني
-    elif game == "game_lyrics":
-        await query.message.reply_text("🎶 أكمل: يا طيبة... يا طيبة... 💙")
-
-    # لعبة كت
-    elif game == "game_cat":
-        await query.message.reply_text(
-            "😼 بوت كت:\n- أنت: مرحبًا\n- البوت: أهلًا بالحلو! وينك؟\n- أنت: مشغول\n- البوت: مشغول عني؟ 😾"
-        )
-
-# التحقق من رد المستخدم بعد اللعبة
-async def handle_text_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
-
-    if user_id in user_game_state:
-        state = user_game_state[user_id]
-        game = state["game"]
-
-        if game == "rps":
-            user = text
-            bot = state["bot_choice"]
-            if user not in ["حجر", "ورقة", "مقص"]:
-                await update.message.reply_text("❗ اختر: حجر، ورقة، أو مقص.")
-                return
-            if user == bot:
-                result = "🤝 تعادل!"
-            elif (user == "حجر" and bot == "مقص") or (user == "ورقة" and bot == "حجر") or (user == "مقص" and bot == "ورقة"):
-                result = f"✅ فزت! (البوت اختار {bot})"
-            else:
-                result = f"❌ خسرت! (البوت اختار {bot})"
-            await update.message.reply_text(result)
-
-        elif game == "guess":
-            if text.isdigit() and int(text) == state["number"]:
-                await update.message.reply_text("🎯 صحيح! خمنت الرقم!")
-            else:
-                await update.message.reply_text(f"❌ خطأ! الرقم كان {state['number']}")
-
-        elif game == "quiz":
-            if "طوكيو" in text:
-                await update.message.reply_text("✅ إجابة صحيحة!")
-            else:
-                await update.message.reply_text("❌ خطأ! الإجابة: طوكيو")
-
-        elif game == "typing":
-            if text == state["word"]:
-                await update.message.reply_text("✅ ممتاز! كتبتها صح")
-            else:
-                await update.message.reply_text(f"❌ خطأ! الكلمة كانت: {state['word']}")
-
-        elif game == "math":
-            if text == state["answer"]:
-                await update.message.reply_text("✅ صحيح!")
-            else:
-                await update.message.reply_text(f"❌ خطأ! الجواب هو: {state['answer']}")
-
-        # احذف الحالة بعد الانتهاء
-        del user_game_state[user_id]
+    await update.message.reply_text(
+        "🎮 الألعاب المتوفرة:\\n"
+        "- اكس او\\n"
+        "- خمن\\n"
+        "- الاسرع\\n\\n"
+        "✏️ أرسل *اسم اللعبة* لبدء اللعب!"
+)
