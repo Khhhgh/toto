@@ -13,13 +13,9 @@ from telegram.error import BadRequest
 
 import admin  # لوحة تحكم المالك
 import replies  # ملف الردود الجاهزة
-from telegram.ext import MessageHandler, filters
-from spam import spam_filter
-import spam
-application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), spam_filter))
+import spam  # ملف الحماية
 
-
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
 OWNER_ID = 8011996271
 
 USERS_FILE = "users.txt"
@@ -133,6 +129,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await handle_replies(update, context)
 
+# تشغيل البوت
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
