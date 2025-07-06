@@ -8,9 +8,12 @@ from telegram.ext import (
     filters,
 )
 import os
+import asyncio
 from telegram.error import BadRequest
 
-import admin
+import admin  # استيراد ملف لوحة تحكم المالك (admin.py)
+import replies  # ملف الردود الجاهزة
+import spam  # ملف فلترة السبام (حماية)
 
 TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
 OWNER_ID = 8011996271
@@ -38,11 +41,12 @@ async def save_group(chat_id: int):
         with open(GROUPS_FILE, "a") as f:
             f.write(f"{chat_id}\n")
 
-# تحقق الاشتراك
+# تحقق من اشتراك المستخدم في القنوات الإلزامية
 async def check_subscription(user_id, bot):
     state = admin.load_state()
     channels = state.get("subscription_channels", [])
     if not channels:
+        # لا توجد قنوات اشتراك، نسمح بالوصول
         return True
 
     for channel in channels:
@@ -51,33 +55,40 @@ async def check_subscription(user_id, bot):
             if member.status in ['left', 'kicked']:
                 return False
         except BadRequest:
+            # البوت ليس عضو في القناة أو معرف القناة خاطئ
             return False
     return True
 
-# /start
+# أمر /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
+
+    # حفظ المستخدم
     await save_user(user.id)
 
+    # تحميل حالة البوت
     state = admin.load_state()
     if not state.get("bot_enabled", True):
         await update.message.reply_text("⛔ البوت معطل حالياً.")
         return
 
+    # تحقق الاشتراك في القنوات
     is_subscribed = await check_subscription(user.id, context.bot)
     if not is_subscribed:
         channels = state.get("subscription_channels", [])
         buttons = []
         for ch in channels:
             ch_username = ch if ch.startswith("@") else "@" + ch
-            buttons.append([
-                InlineKeyboardButton(f"اشترك في {ch_username}", url=f"https://t.me/{ch_username.lstrip('@')}")
-            ])
+            buttons.append([InlineKeyboardButton(text=f"اشترك في {ch_username}", url=f"https://t.me/{ch_username.lstrip('@')}")])
         keyboard = InlineKeyboardMarkup(buttons)
-        await update.message.reply_text("🚫 اشترك بالقنوات التالية ثم أرسل /start:", reply_markup=keyboard)
+        await update.message.reply_text(
+            "🚫 يرجى الاشتراك في القنوات التالية أولًا ثم أرسل /start مجددًا:",
+            reply_markup=keyboard
+        )
         return
 
+    # رسالة الترحيب مع أزرار
     welcome_text = (
         "اهلين انا ماريا ↞ اختصاصي إدارة المجموعات من السبام والخ...\n"
         "↞ كت تويت، يوتيوب، ساوند، وأشياء كثير...\n"
@@ -88,65 +99,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📩 راسل المطور", url="https://t.me/T_4IJ")],
     ]
     keyboard = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text(welcome_text, reply_markup=keyboard)
+    await context.bot.send_message(chat.id, welcome_text, reply_markup=keyboard)
 
-# تفعيل
-async def activate_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    member = await chat.get_member(user.id)
+# الترحيب بانضمام أعضاء جدد للمجموعات
+async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    state = admin.load_state()
+    if not state.get("welcome_enabled", True):
+        return  # إذا الترحيب معطل ما نرسل شيء
 
-    if member.status in ["administrator", "creator"]:
-        await save_group(chat.id)
-        await update.message.reply_text("✅ تم تفعيل البوت في هذه المجموعة.")
-    else:
-        await update.message.reply_text("❌ فقط المشرفين يمكنهم تنفيذ هذا الأمر.")
+    for member in update.message.new_chat_members:
+        await update.message.reply_text(f"أهلاً ومرحباً بك يا {member.mention_html()} في المجموعة 🎉", parse_mode="HTML")
 
-# ترحيب بالأعضاء الجدد
+# استقبال انضمام بوت لمجموعة جديدة
 async def welcome_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    new_members = update.message.new_chat_members
-    await save_group(chat.id)
-    state = admin.load_state()
+    if chat.type in ["group", "supergroup"]:
+        await save_group(chat.id)
 
-    if state.get("welcome_enabled", True):
-        for member in new_members:
-            if member.id != context.bot.id:
-                await update.message.reply_text(
-                    f"👋 أهلًا وسهلًا {member.mention_html()} نورت المجموعة!",
-                    parse_mode="HTML"
-                )
+# التعامل مع الردود الجاهزة
+async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    reply = replies.get_reply(text)
+    if reply:
+        await update.message.reply_text(reply)
 
-# الردود الجاهزة للجروبات
-async def reply_to_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text == "ايدي":
-        await update.message.reply_text(f"🆔 ايديك: {update.effective_user.id}")
-    elif text.lower() in ["شلونك", "شلونج", "شلونكم"]:
-        await update.message.reply_text("تمام وانت؟ 😄")
-    elif text.lower() == "باي":
-        await update.message.reply_text("مع السلامة 🖐️")
-    # أضف ردود أكثر إذا تريد
+# التعامل مع حماية السبام (مثال)
+async def handle_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await spam.filter_spam(update, context):
+        # تم حظر الرسالة كسبام
+        return True
+    return False
 
-# تشغيل البوت
+async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # فلترة السبام أولاً
+    if await handle_spam(update, context):
+        return
+
+    # الردود الجاهزة
+    await handle_replies(update, context)
+
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # أوامر عامة
+    # تسجيل المعالجات
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex(r"^تفعيل$"), activate_bot))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_members))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
+
+    # ردود النصوص والفلترة
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_messages))
 
     # لوحة تحكم المالك
     app.add_handler(CommandHandler("admin", admin.show_admin_panel))
     app.add_handler(CallbackQueryHandler(admin.handle_admin_buttons))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, admin.handle_admin_text))
-
-    # الردود العامة في الجروبات
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, reply_to_messages))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), admin.handle_admin_text))
 
     print("✅ البوت شغال...")
     app.run_polling()
