@@ -21,7 +21,7 @@ import commands_list
 import replies  # ردود جاهزة
 import id_lock_handlers  # ملف إغلاق وفتح الايدي
 
-TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
+TOKEN = os.environ.get("TOKEN")  # استخدم متغير البيئة من Heroku
 OWNER_ID = 8011996271  # معرف مالك البوت
 
 GROUPS_FILE = "groups.txt"
@@ -133,4 +133,14 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.ALL, link_filter.filter_messages))
 
     print("✅ البوت شغال...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, activate_bot))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, reply_id))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, reply_to_messages))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, show_games))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
     app.run_polling()
