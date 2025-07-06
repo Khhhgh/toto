@@ -21,7 +21,7 @@ import commands_list
 import replies  # ردود جاهزة
 import id_lock_handlers  # ملف إغلاق وفتح الايدي
 
-TOKEN = os.environ.get("TOKEN")  # استخدم متغير البيئة من Heroku
+TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"  # استخدم متغير البيئة من Heroku
 OWNER_ID = 8011996271  # معرف مالك البوت
 
 GROUPS_FILE = "groups.txt"
