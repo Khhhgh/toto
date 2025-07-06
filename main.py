@@ -92,7 +92,6 @@ def del_admin_callback(call):
     else:
         bot.answer_callback_query(call.id, "هذا الأدمن غير موجود")
 
-# رفع وخفض أدمن بالرد
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("رفع ادمن") and m.reply_to_message and is_admin(m.from_user.id))
 def promote_admin(message):
     admins = load_data(FILES["admins"])
@@ -112,7 +111,6 @@ def demote_admin(message):
     else:
         bot.reply_to(message, "❌ هذا المستخدم ليس أدمن")
 
-# الحظر المؤقت
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("حظر مؤقت") and m.reply_to_message and is_admin(m.from_user.id))
 def temp_ban(message):
     parts = message.text.split()
@@ -138,7 +136,6 @@ def unban_temp(message):
     else:
         bot.reply_to(message, "❌ المستخدم غير محظور")
 
-# كتم مؤقت
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("كتم مؤقت") and m.reply_to_message and is_admin(m.from_user.id))
 def mute_temp(message):
     parts = message.text.split()
@@ -173,7 +170,6 @@ def unmute_user(message):
     else:
         bot.reply_to(message, "❌ المستخدم غير مكتوم")
 
-# سجل المستخدم
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("سجل المستخدم") and m.reply_to_message and is_admin(m.from_user.id))
 def user_logs(message):
     uid = str(message.reply_to_message.from_user.id)
@@ -185,13 +181,11 @@ def user_logs(message):
     else:
         bot.reply_to(message, "🚫 لا يوجد سجل")
 
-# قائمة المحظورين
 @bot.message_handler(func=lambda m: m.text=="قائمة المحظورين" and is_admin(m.from_user.id))
 def banned_list(message):
     bans = load_data(FILES["bans"])
     bot.reply_to(message, f"🚫 عدد المحظورين: {len(bans)}")
 
-# التحكم بالفلاتر
 @bot.message_handler(func=lambda m: m.text=="تفعيل الفلاتر" and is_admin(m.from_user.id))
 def enable_filters(message):
     filters = load_data(FILES["filters"])
@@ -206,7 +200,6 @@ def disable_filters(message):
     save_data(FILES["filters"], filters)
     bot.reply_to(message, "🛑 تم تعطيل الفلاتر")
 
-# تحديث الترحيب
 @bot.message_handler(func=lambda m: m.text=="تحديث الترحيب" and is_admin(m.from_user.id))
 def update_welcome(message):
     msg = bot.send_message(message.chat.id, "✏️ ارسل رسالة الترحيب (يمكنك استخدام {name} لاسم المستخدم)")
@@ -218,7 +211,6 @@ def set_welcome_message(message):
     save_data(FILES["welcome"], welcome)
     bot.reply_to(message, "✅ تم حفظ رسالة الترحيب")
 
-# الردود التلقائية مع حذف بالزر
 @bot.message_handler(func=lambda m: m.text=="قائمة الردود التلقائية" and is_admin(m.from_user.id))
 def show_autoreplies(message):
     autoreplies = load_data(FILES["autoreplies"])
@@ -243,7 +235,6 @@ def del_autoreply_cb(call):
         autoreplies.pop(key)
         save_data(FILES["autoreplies"], autoreplies)
         bot.answer_callback_query(call.id, f"تم حذف الرد التلقائي: {key}")
-        # تحديث الرسالة أو حذفها
         bot.delete_message(call.message.chat.id, call.message.message_id)
     else:
         bot.answer_callback_query(call.id, "هذا الرد غير موجود")
@@ -273,7 +264,6 @@ def del_autoreply(message):
     except:
         bot.reply_to(message, "❌ الصيغة خاطئة. مثال: حذف رد تلقائي مرحبا")
 
-# التحذيرات
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("تحذير مستخدم") and m.reply_to_message and is_admin(m.from_user.id))
 def warn_user_cmd(message):
     uid = str(message.reply_to_message.from_user.id)
@@ -291,13 +281,11 @@ def show_warnings(message):
     else:
         bot.reply_to(message, "🚫 لا يوجد تحذيرات")
 
-# عدد المستخدمين
 @bot.message_handler(func=lambda m: m.text=="عدد المستخدمين" and is_admin(m.from_user.id))
 def count_users(message):
     users = load_data(FILES["users"])
     bot.reply_to(message, f"👥 عدد المستخدمين: {len(users)}")
 
-# إرسال رسالة جماعية للأدمن (بسيط)
 broadcast_states = {}
 
 @bot.message_handler(func=lambda m: m.text=="ارسال جماعي" and is_admin(m.from_user.id))
@@ -306,3 +294,106 @@ def start_broadcast(message):
     bot.reply_to(message, "✉️ ارسل الرسالة التي تريد إرسالها لجميع المستخدمين:")
 
 @bot.message_handler(func=lambda m: broadcast_states.get(m.from_user.id, False))
+def do_broadcast(message):
+    broadcast_states.pop(message.from_user.id, None)
+    users = load_data(FILES["users"])
+    count = 0
+    for uid in users.keys():
+        try:
+            bot.send_message(int(uid), message.text)
+            count += 1
+        except:
+            pass
+    bot.reply_to(message, f"✅ تم ارسال الرسالة لـ {count} مستخدم.")
+
+@bot.message_handler(func=lambda m: True)
+def handle_all(message):
+    uid = str(message.from_user.id)
+    text = message.text or ""
+
+    users = load_data(FILES["users"])
+    if uid not in users:
+        users[uid] = message.from_user.first_name
+        save_data(FILES["users"], users)
+
+    stats = load_data(FILES["stats"])
+    stats["messages"] = stats.get("messages",0) + 1
+    save_data(FILES["stats"], stats)
+
+    logs = load_data(FILES["logs"])
+    logs.setdefault(uid, []).append({"text": text, "time": str(datetime.now())})
+    if len(logs[uid]) > 20:
+        logs[uid] = logs[uid][-20:]
+    save_data(FILES["logs"], logs)
+
+    bans = load_data(FILES["bans"])
+    if uid in bans:
+        if isinstance(bans[uid], float) and time.time() > bans[uid]:
+            bans.pop(uid)
+            save_data(FILES["bans"], bans)
+        else:
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            return
+
+    mutes = load_data(FILES["mutes"])
+    if uid in mutes:
+        mute_val = mutes[uid]
+        if isinstance(mute_val, float):
+            if time.time() > mute_val:
+                mutes.pop(uid)
+                save_data(FILES["mutes"], mutes)
+            else:
+                try:
+                    bot.delete_message(message.chat.id, message.message_id)
+                except:
+                    pass
+                return
+        else:
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            return
+
+    filters = load_data(FILES["filters"])
+    if filters.get("enabled", True):
+        badwords = ["غبي", "تافه", "حقير"]
+        if any(w in text.lower() for w in badwords):
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            warn_user(uid, message.chat.id, "كلمات مسيئة")
+            return
+        if "http://" in text.lower() or "https://" in text.lower() or "t.me/" in text.lower():
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            warn_user(uid, message.chat.id, "روابط ممنوعة")
+            return
+
+    autoreplies = load_data(FILES["autoreplies"])
+    for key, val in autoreplies.items():
+        if key in text:
+            bot.reply_to(message, val)
+            break
+
+def warn_user(uid, chat_id, reason):
+    warnings = load_data(FILES["warnings"])
+    warnings[uid] = warnings.get(uid, 0) + 1
+    count = warnings[uid]
+    save_data(FILES["warnings"], warnings)
+    bot.send_message(chat_id, f"⚠️ تحذير {count}/3 بسبب: {reason}")
+    if count >= 3:
+        bans = load_data(FILES["bans"])
+        if uid not in bans:
+            bans[uid] = True
+            save_data(FILES["bans"], bans)
+            bot.send_message(chat_id, f"🚫 تم حظر المستخدم {uid}")
+
+print("✅ بوت ماريا المطور جاهز للعمل")
+bot.infinity_polling()
