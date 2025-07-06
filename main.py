@@ -96,6 +96,21 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in ["اكس او", "خمن", "الاسرع"]:
         await games.start_game_by_name(update, context, text)
 
+# تغليف معالج نصوص الادمن ليشتغل فقط إذا الادمن داخل وضع انتظار معين
+async def admin_text_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    waiting_keys = [
+        "waiting_for_channel_add",
+        "waiting_broadcast_groups",
+        "waiting_broadcast_private",
+        "waiting_promote",
+        "waiting_demote",
+    ]
+    if not any(context.user_data.get(k) for k in waiting_keys):
+        return
+    await admin.handle_admin_text(update, context)
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -105,7 +120,7 @@ if __name__ == "__main__":
     # لوحة تحكم المالك
     app.add_handler(CommandHandler("admin", admin.show_admin_panel))
     app.add_handler(CallbackQueryHandler(admin.handle_admin_buttons))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), admin.handle_admin_text))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), admin_text_wrapper))
 
     # حفظ المجموعات عند انضمام البوت
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
