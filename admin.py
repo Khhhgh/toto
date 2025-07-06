@@ -1,6 +1,7 @@
 import json
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberAdministrator, ChatMemberOwner
+import asyncio
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 OWNER_ID = 8011996271
@@ -8,7 +9,6 @@ OWNER_ID = 8011996271
 STATE_FILE = "bot_state.json"
 CHANNELS_FILE = "channels.json"
 
-# تحميل حالة البوت (تفعيل، شعار دخول، اشتراك)
 def load_state():
     if not os.path.exists(STATE_FILE):
         state = {
@@ -26,7 +26,6 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-# تحميل قنوات الاشتراك (قائمة)
 def load_channels():
     if not os.path.exists(CHANNELS_FILE):
         save_channels([])
@@ -81,7 +80,6 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
     state = load_state()
     channels = load_channels()
 
-    # تبديل تفعيل البوت
     if data == "bot_toggle":
         state["bot_enabled"] = not state["bot_enabled"]
         save_state(state)
@@ -89,7 +87,6 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
         await show_admin_panel(update, context)
         return
 
-    # تبديل تفعيل شعار الدخول
     if data == "welcome_toggle":
         state["welcome_enabled"] = not state["welcome_enabled"]
         save_state(state)
@@ -97,14 +94,12 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
         await show_admin_panel(update, context)
         return
 
-    # إضافة قناة للاشتراك
     if data == "add_channel":
         await query.message.reply_text("أرسل معرف القناة الآن (مثال: @channelusername):")
         context.user_data["waiting_for_channel_add"] = True
         await query.answer()
         return
 
-    # حذف قناة للاشتراك
     if data == "remove_channel":
         if not channels:
             await query.answer("لا توجد قنوات للاشتراك.", show_alert=True)
@@ -128,21 +123,18 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.answer("القناة غير موجودة.", show_alert=True)
         return
 
-    # إرسال إذاعة في الجروبات
     if data == "broadcast_groups":
         await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها في جميع المجموعات:")
         context.user_data["waiting_broadcast_groups"] = True
         await query.answer()
         return
 
-    # إرسال إذاعة في الخاص
     if data == "broadcast_private":
         await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها في الخاص:")
         context.user_data["waiting_broadcast_private"] = True
         await query.answer()
         return
 
-    # عرض الإحصائيات
     if data == "show_stats":
         users_file = "users.txt"
         groups_file = "groups.txt"
@@ -158,21 +150,18 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(f"📊 إحصائيات البوت:\nعدد المستخدمين: {users_count}\nعدد المجموعات: {groups_count}")
         return
 
-    # رفع مشرف
     if data == "promote_admin":
         await query.message.reply_text("أرسل معرف المستخدم الذي تريد رفعه مشرف:")
         context.user_data["waiting_promote"] = True
         await query.answer()
         return
 
-    # تنزيل مشرف
     if data == "demote_admin":
         await query.message.reply_text("أرسل معرف المستخدم الذي تريد تنزيله من المشرفين:")
         context.user_data["waiting_demote"] = True
         await query.answer()
         return
 
-# استقبال النصوص للمهام المؤقتة (مثل إضافة قناة، البث، رفع/تنزيل مشرف)
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -243,7 +232,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await update.message.reply_text("❌ يرجى إرسال معرف رقمي صحيح.")
             return
-        # رفع مشرف في الروت
         chat = update.effective_chat
         try:
             await context.bot.promote_chat_member(chat.id, user_to_promote,
