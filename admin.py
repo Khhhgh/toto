@@ -37,6 +37,7 @@ def save_channels(channels):
     with open(CHANNELS_FILE, "w") as f:
         json.dump(channels, f)
 
+# دالة عرض لوحة تحكم المالك عند /admin (رسالة جديدة)
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -69,6 +70,33 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb
     )
 
+# دالة تحديث لوحة تحكم المالك عند ضغط أزرار (تعديل نفس الرسالة)
+async def show_admin_panel_callback(query, state):
+    bot_status = "✅ مفعل" if state["bot_enabled"] else "❌ معطل"
+    welcome_status = "✅ مفعل" if state["welcome_enabled"] else "❌ معطل"
+    subs_count = len(state["subscription_channels"])
+
+    buttons = [
+        [InlineKeyboardButton(f"تفعيل البوت {'✅' if not state['bot_enabled'] else '❌'}", callback_data="bot_toggle")],
+        [InlineKeyboardButton(f"تفعيل شعار الدخول {'✅' if not state['welcome_enabled'] else '❌'}", callback_data="welcome_toggle")],
+        [InlineKeyboardButton("إضافة قناة للاشتراك", callback_data="add_channel")],
+        [InlineKeyboardButton("حذف قناة للاشتراك", callback_data="remove_channel")],
+        [InlineKeyboardButton("إرسال إذاعة في الجروبات", callback_data="broadcast_groups")],
+        [InlineKeyboardButton("إرسال إذاعة في الخاص", callback_data="broadcast_private")],
+        [InlineKeyboardButton("عرض الإحصائيات", callback_data="show_stats")],
+        [InlineKeyboardButton("رفع مشرف", callback_data="promote_admin")],
+        [InlineKeyboardButton("تنزيل مشرف", callback_data="demote_admin")],
+    ]
+
+    kb = InlineKeyboardMarkup(buttons)
+    await query.edit_message_text(
+        f"لوحة تحكم المالك:\n\n"
+        f"حالة البوت: {bot_status}\n"
+        f"حالة شعار الدخول: {welcome_status}\n"
+        f"عدد قنوات الاشتراك: {subs_count}",
+        reply_markup=kb
+    )
+
 async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -84,14 +112,14 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
         state["bot_enabled"] = not state["bot_enabled"]
         save_state(state)
         await query.answer(f"تم {'تفعيل' if state['bot_enabled'] else 'تعطيل'} البوت.")
-        await show_admin_panel(update, context)
+        await show_admin_panel_callback(query, state)
         return
 
     if data == "welcome_toggle":
         state["welcome_enabled"] = not state["welcome_enabled"]
         save_state(state)
         await query.answer(f"تم {'تفعيل' if state['welcome_enabled'] else 'تعطيل'} شعار الدخول.")
-        await show_admin_panel(update, context)
+        await show_admin_panel_callback(query, state)
         return
 
     if data == "add_channel":
@@ -104,9 +132,7 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
         if not channels:
             await query.answer("لا توجد قنوات للاشتراك.", show_alert=True)
             return
-        buttons = []
-        for ch in channels:
-            buttons.append([InlineKeyboardButton(ch, callback_data=f"remove_channel_{ch}")])
+        buttons = [[InlineKeyboardButton(ch, callback_data=f"remove_channel_{ch}")] for ch in channels]
         kb = InlineKeyboardMarkup(buttons)
         await query.message.reply_text("اختر القناة التي تريد حذفها:", reply_markup=kb)
         await query.answer()
@@ -118,7 +144,7 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
             channels.remove(ch_to_remove)
             save_channels(channels)
             await query.answer(f"تم حذف القناة {ch_to_remove}.")
-            await show_admin_panel(update, context)
+            await show_admin_panel_callback(query, state)
         else:
             await query.answer("القناة غير موجودة.", show_alert=True)
         return
@@ -166,6 +192,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
         return
+
     text = update.message.text.strip()
     state = load_state()
     channels = load_channels()
