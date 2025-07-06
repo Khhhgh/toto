@@ -13,7 +13,11 @@ from telegram.error import BadRequest
 
 import admin  # لوحة تحكم المالك
 import replies  # ملف الردود الجاهزة
-import spam  # ملف الحماية
+from telegram.ext import MessageHandler, filters
+from spam import spam_filter
+import spam
+application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), spam_filter))
+
 
 TOKEN = "YOUR_BOT_TOKEN"
 OWNER_ID = 8011996271
