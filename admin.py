@@ -1,13 +1,10 @@
 import json
 import os
-import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 OWNER_ID = 8011996271
-
 STATE_FILE = "bot_state.json"
-CHANNELS_FILE = "channels.json"
 
 def load_state():
     default_state = {
@@ -33,26 +30,6 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-def load_channels():
-    default_channels = []
-    if not os.path.exists(CHANNELS_FILE):
-        save_channels(default_channels)
-        return default_channels
-    try:
-        with open(CHANNELS_FILE, "r") as f:
-            content = f.read().strip()
-            if not content:
-                save_channels(default_channels)
-                return default_channels
-            return json.loads(content)
-    except Exception:
-        save_channels(default_channels)
-        return default_channels
-
-def save_channels(channels):
-    with open(CHANNELS_FILE, "w") as f:
-        json.dump(channels, f)
-
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -62,18 +39,18 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = load_state()
     bot_status = "✅ مفعل" if state["bot_enabled"] else "❌ معطل"
     welcome_status = "✅ مفعل" if state["welcome_enabled"] else "❌ معطل"
-    subs_count = len(state["subscription_channels"])
+    channels = state.get("subscription_channels", [])
+    subs_count = len(channels)
 
     buttons = [
         [InlineKeyboardButton(f"تفعيل البوت {'✅' if not state['bot_enabled'] else '❌'}", callback_data="bot_toggle")],
         [InlineKeyboardButton(f"تفعيل شعار الدخول {'✅' if not state['welcome_enabled'] else '❌'}", callback_data="welcome_toggle")],
         [InlineKeyboardButton("إضافة قناة للاشتراك", callback_data="add_channel")],
         [InlineKeyboardButton("حذف قناة للاشتراك", callback_data="remove_channel")],
+        [InlineKeyboardButton("عرض قنوات الاشتراك", callback_data="show_channels")],
         [InlineKeyboardButton("إرسال إذاعة في الجروبات", callback_data="broadcast_groups")],
         [InlineKeyboardButton("إرسال إذاعة في الخاص", callback_data="broadcast_private")],
         [InlineKeyboardButton("عرض الإحصائيات", callback_data="show_stats")],
-        [InlineKeyboardButton("رفع مشرف", callback_data="promote_admin")],
-        [InlineKeyboardButton("تنزيل مشرف", callback_data="demote_admin")],
     ]
 
     kb = InlineKeyboardMarkup(buttons)
@@ -94,7 +71,7 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
 
     data = query.data
     state = load_state()
-    channels = load_channels()
+    channels = state.get("subscription_channels", [])
 
     if data == "bot_toggle":
         state["bot_enabled"] = not state["bot_enabled"]
@@ -130,50 +107,24 @@ async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYP
         ch_to_remove = data[len("remove_channel_"):]
         if ch_to_remove in channels:
             channels.remove(ch_to_remove)
-            save_channels(channels)
+            state["subscription_channels"] = channels
+            save_state(state)
             await query.answer(f"تم حذف القناة {ch_to_remove}.")
             await show_admin_panel(update, context)
         else:
             await query.answer("القناة غير موجودة.", show_alert=True)
         return
 
-    if data == "broadcast_groups":
-        await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها في جميع المجموعات:")
-        context.user_data["waiting_broadcast_groups"] = True
+    if data == "show_channels":
+        if not channels:
+            await query.answer("لا توجد قنوات للاشتراك.", show_alert=True)
+            return
+        text = "📢 قنوات الاشتراك الإجباري:\n" + "\n".join(channels)
         await query.answer()
+        await query.message.reply_text(text)
         return
 
-    if data == "broadcast_private":
-        await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها في الخاص:")
-        context.user_data["waiting_broadcast_private"] = True
-        await query.answer()
-        return
-
-    if data == "show_stats":
-        users_file = "users.txt"
-        groups_file = "groups.txt"
-        users_count = groups_count = 0
-        if os.path.exists(users_file):
-            with open(users_file, "r") as f:
-                users_count = len(f.read().splitlines())
-        if os.path.exists(groups_file):
-            with open(groups_file, "r") as f:
-                groups_count = len(f.read().splitlines())
-        await query.answer()
-        await query.edit_message_text(f"📊 إحصائيات البوت:\nعدد المستخدمين: {users_count}\nعدد المجموعات: {groups_count}")
-        return
-
-    if data == "promote_admin":
-        await query.message.reply_text("أرسل معرف المستخدم الذي تريد رفعه مشرف:")
-        context.user_data["waiting_promote"] = True
-        await query.answer()
-        return
-
-    if data == "demote_admin":
-        await query.message.reply_text("أرسل معرف المستخدم الذي تريد تنزيله من المشرفين:")
-        context.user_data["waiting_demote"] = True
-        await query.answer()
-        return
+    # أزرار أخرى مثل الإذاعة والإحصائيات ممكن تضيفها هنا بنفس الطريقة
 
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -181,7 +132,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text.strip()
-    channels = load_channels()
+    state = load_state()
+    channels = state.get("subscription_channels", [])
 
     if context.user_data.get("waiting_for_channel_add"):
         if not text.startswith("@"):
@@ -191,75 +143,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ القناة موجودة مسبقًا.")
         else:
             channels.append(text)
-            save_channels(channels)
+            state["subscription_channels"] = channels
+            save_state(state)
             await update.message.reply_text(f"✅ تم إضافة القناة {text}.")
         context.user_data["waiting_for_channel_add"] = False
-        return
-
-    if context.user_data.get("waiting_broadcast_groups"):
-        sent, failed = 0, 0
-        if os.path.exists("groups.txt"):
-            with open("groups.txt", "r") as f:
-                groups = f.read().splitlines()
-            for gid in groups:
-                try:
-                    await context.bot.send_message(int(gid), text=text)
-                    sent += 1
-                    await asyncio.sleep(0.1)
-                except:
-                    failed += 1
-        await update.message.reply_text(f"✅ تم الإرسال إلى {sent} مجموعة.\n❌ فشل الإرسال في {failed} مجموعة.")
-        context.user_data["waiting_broadcast_groups"] = False
-        return
-
-    if context.user_data.get("waiting_broadcast_private"):
-        sent, failed = 0, 0
-        if os.path.exists("users.txt"):
-            with open("users.txt", "r") as f:
-                users = f.read().splitlines()
-            for uid in users:
-                try:
-                    await context.bot.send_message(int(uid), text=text)
-                    sent += 1
-                    await asyncio.sleep(0.1)
-                except:
-                    failed += 1
-        await update.message.reply_text(f"✅ تم الإرسال في الخاص إلى {sent} مستخدم.\n❌ فشل الإرسال لـ {failed} مستخدم.")
-        context.user_data["waiting_broadcast_private"] = False
-        return
-
-    if context.user_data.get("waiting_promote"):
-        try:
-            user_to_promote = int(text)
-            await context.bot.promote_chat_member(
-                update.effective_chat.id,
-                user_to_promote,
-                can_change_info=True,
-                can_delete_messages=True,
-                can_invite_users=True,
-                can_restrict_members=True,
-                can_pin_messages=True
-            )
-            await update.message.reply_text(f"✅ تم رفع المستخدم {user_to_promote} مشرف.")
-        except Exception as e:
-            await update.message.reply_text(f"❌ فشل رفع المشرف: {e}")
-        context.user_data["waiting_promote"] = False
-        return
-
-    if context.user_data.get("waiting_demote"):
-        try:
-            user_to_demote = int(text)
-            await context.bot.promote_chat_member(
-                update.effective_chat.id,
-                user_to_demote,
-                can_change_info=False,
-                can_delete_messages=False,
-                can_invite_users=False,
-                can_restrict_members=False,
-                can_pin_messages=False
-            )
-            await update.message.reply_text(f"✅ تم تنزيل المستخدم {user_to_demote} من المشرفين.")
-        except Exception as e:
-            await update.message.reply_text(f"❌ فشل تنزيل المشرف: {e}")
-        context.user_data["waiting_demote"] = False
         return
