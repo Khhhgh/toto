@@ -1,146 +1,269 @@
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-)
-import asyncio
+import json
 import os
+import asyncio
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
 
-import protection
-import games
-import link_filter
-import commands_list
-import replies  # ردود جاهزة
-import id_lock_handlers  # ملف إغلاق وفتح الايدي
+OWNER_ID = 8011996271
 
-TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"  # استخدم متغير البيئة من Heroku
-OWNER_ID = 8011996271  # معرف مالك البوت
+STATE_FILE = "bot_state.json"
+CHANNELS_FILE = "channels.json"
 
-GROUPS_FILE = "groups.txt"
+def load_state():
+    if not os.path.exists(STATE_FILE):
+        state = {
+            "bot_enabled": True,
+            "welcome_enabled": True,
+            "subscription_channels": []
+        }
+        save_state(state)
+    else:
+        with open(STATE_FILE, "r") as f:
+            state = json.load(f)
+    return state
 
-# حفظ المجموعات
-async def save_group(chat_id: int):
-    if not os.path.exists(GROUPS_FILE):
-        with open(GROUPS_FILE, "w") as f:
-            pass
-    with open(GROUPS_FILE, "r") as f:
-        groups = f.read().splitlines()
-    if str(chat_id) not in groups:
-        with open(GROUPS_FILE, "a") as f:
-            f.write(f"{chat_id}\n")
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
 
-# عند دخول البوت لمجموعة
-async def welcome_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    if chat.type in ["group", "supergroup"]:
-        await save_group(chat.id)
+def load_channels():
+    if not os.path.exists(CHANNELS_FILE):
+        save_channels([])
+        return []
+    with open(CHANNELS_FILE, "r") as f:
+        return json.load(f)
 
-# رسالة الترحيب
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def save_channels(channels):
+    with open(CHANNELS_FILE, "w") as f:
+        json.dump(channels, f)
+
+async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("❌ هذا الأمر خاص بالمالك فقط.")
+        return
 
-    welcome_text = (
-        "اهلين انا ماريا↞ اختصاصي ادارة المجموعات من السبام والخ..↞ كت تويت, يوتيوب, ساوند , واشياء كثير ..↞ عشان تفعلني ارفعني اشراف وارسل تفعيل."
-    )
+    state = load_state()
+    bot_status = "✅ مفعل" if state["bot_enabled"] else "❌ معطل"
+    welcome_status = "✅ مفعل" if state["welcome_enabled"] else "❌ معطل"
+    subs_count = len(state["subscription_channels"])
 
     buttons = [
-        [InlineKeyboardButton("ضيفني لمجموعتك ✨😺", url=f"https://t.me/{context.bot.username}?startgroup=true")],
-        [InlineKeyboardButton("📩 راسل المطور", url="https://t.me/T_4IJ")],
+        [InlineKeyboardButton(f"تفعيل البوت {'✅' if not state['bot_enabled'] else '❌'}", callback_data="bot_toggle")],
+        [InlineKeyboardButton(f"تفعيل شعار الدخول {'✅' if not state['welcome_enabled'] else '❌'}", callback_data="welcome_toggle")],
+        [InlineKeyboardButton("إضافة قناة للاشتراك", callback_data="add_channel")],
+        [InlineKeyboardButton("حذف قناة للاشتراك", callback_data="remove_channel")],
+        [InlineKeyboardButton("إرسال إذاعة في الجروبات", callback_data="broadcast_groups")],
+        [InlineKeyboardButton("إرسال إذاعة في الخاص", callback_data="broadcast_private")],
+        [InlineKeyboardButton("عرض الإحصائيات", callback_data="show_stats")],
+        [InlineKeyboardButton("رفع مشرف", callback_data="promote_admin")],
+        [InlineKeyboardButton("تنزيل مشرف", callback_data="demote_admin")],
     ]
 
-    keyboard = InlineKeyboardMarkup(buttons)
-    await context.bot.send_message(chat_id=chat_id, text=welcome_text, reply_markup=keyboard)
+    kb = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text(
+        f"لوحة تحكم المالك:\n\n"
+        f"حالة البوت: {bot_status}\n"
+        f"حالة شعار الدخول: {welcome_status}\n"
+        f"عدد قنوات الاشتراك: {subs_count}",
+        reply_markup=kb
+    )
 
-# استقبال كلمة تفعيل في المجموعات
-async def activate_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    chat = update.effective_chat
-    user = update.effective_user
-    if msg.text == "تفعيل":
-        member = await chat.get_member(user.id)
-        if member.status in ["administrator", "creator"]:
-            await update.message.reply_text("تم تفعيل الكروب 😊")
-            await save_group(chat.id)
+async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if user_id != OWNER_ID:
+        await query.answer("❌ فقط المالك يمكنه استخدام هذه الأزرار.", show_alert=True)
+        return
 
-# الرد على كلمة ايدي مع التحقق من القفل
-async def reply_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if id_lock_handlers.id_locked:
-        return  # مغلق لا يرد
+    data = query.data
+    state = load_state()
+    channels = load_channels()
 
-    text = update.message.text
-    if text == "ايدي":
-        await id_lock_handlers.reply_to_id(update, context)
+    if data == "bot_toggle":
+        state["bot_enabled"] = not state["bot_enabled"]
+        save_state(state)
+        await query.answer(f"تم {'تفعيل' if state['bot_enabled'] else 'تعطيل'} البوت.")
+        await show_admin_panel(update, context)
+        return
 
-# ردود جاهزة
-async def reply_to_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    response = replies.get_reply(text)
-    if response:
-        await update.message.reply_text(response)
+    if data == "welcome_toggle":
+        state["welcome_enabled"] = not state["welcome_enabled"]
+        save_state(state)
+        await query.answer(f"تم {'تفعيل' if state['welcome_enabled'] else 'تعطيل'} شعار الدخول.")
+        await show_admin_panel(update, context)
+        return
 
-# زرار الألعاب بدون أزرار ان لاين (رسالة فقط)
-async def show_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "الالعاب":
-        games_list = (
-            "🎮 ألعاب البوت:\n"
-            "1. اكس او\n"
-            "2. خمن\n"
-            "3. الاسرع\n"
-            "\nارسل اسم اللعبة للبدء."
-        )
-        await update.message.reply_text(games_list)
+    if data == "add_channel":
+        await query.message.reply_text("أرسل معرف القناة الآن (مثال: @channelusername):")
+        context.user_data["waiting_for_channel_add"] = True
+        await query.answer()
+        return
 
-# بدء الألعاب حسب الاسم
-async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text in ["اكس او", "خمن", "الاسرع"]:
-        await games.start_game_by_name(update, context, text)
+    if data == "remove_channel":
+        if not channels:
+            await query.answer("لا توجد قنوات للاشتراك.", show_alert=True)
+            return
+        buttons = []
+        for ch in channels:
+            buttons.append([InlineKeyboardButton(ch, callback_data=f"remove_channel_{ch}")])
+        kb = InlineKeyboardMarkup(buttons)
+        await query.message.reply_text("اختر القناة التي تريد حذفها:", reply_markup=kb)
+        await query.answer()
+        return
 
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+    if data.startswith("remove_channel_"):
+        ch_to_remove = data[len("remove_channel_"):]
+        if ch_to_remove in channels:
+            channels.remove(ch_to_remove)
+            save_channels(channels)
+            await query.answer(f"تم حذف القناة {ch_to_remove}.")
+            await show_admin_panel(update, context)
+        else:
+            await query.answer("القناة غير موجودة.", show_alert=True)
+        return
 
-    # أوامر أساسية
-    app.add_handler(CommandHandler("start", start))
+    if data == "broadcast_groups":
+        await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها في جميع المجموعات:")
+        context.user_data["waiting_broadcast_groups"] = True
+        await query.answer()
+        return
 
-    # حفظ المجموعات عند انضمام البوت
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
+    if data == "broadcast_private":
+        await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها في الخاص:")
+        context.user_data["waiting_broadcast_private"] = True
+        await query.answer()
+        return
 
-    # تفعيل البوت بالكروب
-    app.add_handler(MessageHandler(filters.Regex(r'^تفعيل$'), activate_bot))
+    if data == "show_stats":
+        users_file = "users.txt"
+        groups_file = "groups.txt"
+        users_count = 0
+        groups_count = 0
+        if os.path.exists(users_file):
+            with open(users_file, "r") as f:
+                users_count = len(f.read().splitlines())
+        if os.path.exists(groups_file):
+            with open(groups_file, "r") as f:
+                groups_count = len(f.read().splitlines())
+        await query.answer()
+        await query.edit_message_text(f"📊 إحصائيات البوت:\nعدد المستخدمين: {users_count}\nعدد المجموعات: {groups_count}")
+        return
 
-    # ألعاب
-    app.add_handler(MessageHandler(filters.Regex(r'^الالعاب$'), show_games))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^(اكس او|خمن|الاسرع)$'), start_game))
+    if data == "promote_admin":
+        await query.message.reply_text("أرسل معرف المستخدم الذي تريد رفعه مشرف:")
+        context.user_data["waiting_promote"] = True
+        await query.answer()
+        return
 
-    # الرد على كلمة ايدي
-    app.add_handler(MessageHandler(filters.Regex(r'^ايدي$'), reply_id))
+    if data == "demote_admin":
+        await query.message.reply_text("أرسل معرف المستخدم الذي تريد تنزيله من المشرفين:")
+        context.user_data["waiting_demote"] = True
+        await query.answer()
+        return
 
-    # الردود الجاهزة
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reply_to_messages))
+async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != OWNER_ID:
+        return
+    text = update.message.text.strip()
+    state = load_state()
+    channels = load_channels()
 
-    # باقي الفلاتر
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), protection.handle_text_commands))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), link_filter.link_chat_control))
-    app.add_handler(MessageHandler(filters.ALL, link_filter.filter_messages))
+    if context.user_data.get("waiting_for_channel_add"):
+        if not text.startswith("@"):
+            await update.message.reply_text("❌ الرجاء إرسال معرف القناة بشكل صحيح (ابدأ بـ @).")
+            return
+        if text in channels:
+            await update.message.reply_text("❌ القناة موجودة مسبقًا.")
+            context.user_data["waiting_for_channel_add"] = False
+            return
+        channels.append(text)
+        save_channels(channels)
+        await update.message.reply_text(f"✅ تم إضافة القناة {text}.")
+        context.user_data["waiting_for_channel_add"] = False
+        return
 
-    print("✅ البوت شغال...")
-    app.run_polling()
+    if context.user_data.get("waiting_broadcast_groups"):
+        groups_file = "groups.txt"
+        if not os.path.exists(groups_file):
+            await update.message.reply_text("⚠️ لا توجد مجموعات مسجلة.")
+            context.user_data["waiting_broadcast_groups"] = False
+            return
+        with open(groups_file, "r") as f:
+            groups = f.read().splitlines()
+        sent_count = 0
+        failed_count = 0
+        for gid in groups:
+            try:
+                await context.bot.send_message(int(gid), text=text)
+                sent_count += 1
+                await asyncio.sleep(0.1)
+            except:
+                failed_count += 1
+        await update.message.reply_text(f"✅ تم الإرسال إلى {sent_count} مجموعة.\n❌ فشل الإرسال في {failed_count} مجموعة.")
+        context.user_data["waiting_broadcast_groups"] = False
+        return
 
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, activate_bot))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, reply_id))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, reply_to_messages))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, show_games))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
-    app.run_polling()
+    if context.user_data.get("waiting_broadcast_private"):
+        users_file = "users.txt"
+        if not os.path.exists(users_file):
+            await update.message.reply_text("⚠️ لا يوجد مستخدمين مسجلين.")
+            context.user_data["waiting_broadcast_private"] = False
+            return
+        with open(users_file, "r") as f:
+            users = f.read().splitlines()
+        sent_count = 0
+        failed_count = 0
+        for uid in users:
+            try:
+                await context.bot.send_message(int(uid), text=text)
+                sent_count += 1
+                await asyncio.sleep(0.1)
+            except:
+                failed_count += 1
+        await update.message.reply_text(f"✅ تم الإرسال في الخاص إلى {sent_count} مستخدم.\n❌ فشل الإرسال لـ {failed_count} مستخدم.")
+        context.user_data["waiting_broadcast_private"] = False
+        return
+
+    if context.user_data.get("waiting_promote"):
+        try:
+            user_to_promote = int(text)
+        except:
+            await update.message.reply_text("❌ يرجى إرسال معرف رقمي صحيح.")
+            return
+        chat = update.effective_chat
+        try:
+            await context.bot.promote_chat_member(chat.id, user_to_promote,
+                                                  can_change_info=True,
+                                                  can_delete_messages=True,
+                                                  can_invite_users=True,
+                                                  can_restrict_members=True,
+                                                  can_pin_messages=True,
+                                                  can_promote_members=False)
+            await update.message.reply_text(f"✅ تم رفع المستخدم {user_to_promote} مشرف.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ فشل رفع المشرف: {e}")
+        context.user_data["waiting_promote"] = False
+        return
+
+    if context.user_data.get("waiting_demote"):
+        try:
+            user_to_demote = int(text)
+        except:
+            await update.message.reply_text("❌ يرجى إرسال معرف رقمي صحيح.")
+            return
+        chat = update.effective_chat
+        try:
+            await context.bot.promote_chat_member(chat.id, user_to_demote,
+                                                  can_change_info=False,
+                                                  can_delete_messages=False,
+                                                  can_invite_users=False,
+                                                  can_restrict_members=False,
+                                                  can_pin_messages=False,
+                                                  can_promote_members=False)
+            await update.message.reply_text(f"✅ تم تنزيل المستخدم {user_to_demote} من المشرفين.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ فشل تنزيل المشرف: {e}")
+        context.user_data["waiting_demote"] = False
+        return
