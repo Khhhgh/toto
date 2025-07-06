@@ -14,6 +14,7 @@ from telegram.error import BadRequest
 import admin  # لوحة تحكم المالك
 import replies  # ملف الردود الجاهزة
 import spam  # ملف الحماية
+import protections  # أوامر الحماية
 
 TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
 OWNER_ID = 8011996271
@@ -129,6 +130,28 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await handle_replies(update, context)
 
+# تنفيذ أووامر الحماية بالرد
+async def handle_protect_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message:
+        return
+
+    text = update.message.text.strip()
+
+    if text == "كتم":
+        await protections.mute(update, context)
+    elif text == "الغاء كتم":
+        await protections.unmute(update, context)
+    elif text == "طرد":
+        await protections.kick(update, context)
+    elif text == "حظر":
+        await protections.ban(update, context)
+    elif text == "الغاء حظر":
+        await protections.unban(update, context)
+    elif text == "رفع مشرف":
+        await protections.promote_admin(update, context)
+    elif text == "تنزيل مشرف":
+        await protections.demote_admin(update, context)
+
 # تشغيل البوت
 if __name__ == "__main__":
     import logging
@@ -139,12 +162,11 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_messages))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_protect_commands))
 
-    # لوحة التحكم
     app.add_handler(CommandHandler("admin", admin.show_admin_panel))
     app.add_handler(CallbackQueryHandler(admin.handle_admin_buttons))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), admin.handle_admin_text))
 
     print("✅ البوت شغال...")
     app.run_polling()
-ly_markup=kb
