@@ -11,11 +11,11 @@ import os
 import asyncio
 from telegram.error import BadRequest
 
-import admin  # استيراد ملف لوحة تحكم المالك (admin.py)
+import admin  # لوحة تحكم المالك
 import replies  # ملف الردود الجاهزة
+import spam  # ملف الحماية
 
-
-TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
+TOKEN = "YOUR_BOT_TOKEN"
 OWNER_ID = 8011996271
 
 USERS_FILE = "users.txt"
@@ -41,39 +41,33 @@ async def save_group(chat_id: int):
         with open(GROUPS_FILE, "a") as f:
             f.write(f"{chat_id}\n")
 
-# تحقق من اشتراك المستخدم في القنوات الإلزامية
+# تحقق من الاشتراك
 async def check_subscription(user_id, bot):
     state = admin.load_state()
     channels = state.get("subscription_channels", [])
     if not channels:
-        # لا توجد قنوات اشتراك، نسمح بالوصول
         return True
-
     for channel in channels:
         try:
             member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
             if member.status in ['left', 'kicked']:
                 return False
         except BadRequest:
-            # البوت ليس عضو في القناة أو معرف القناة خاطئ
             return False
     return True
 
-# أمر /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
-    # حفظ المستخدم
     await save_user(user.id)
 
-    # تحميل حالة البوت
     state = admin.load_state()
     if not state.get("bot_enabled", True):
         await update.message.reply_text("⛔ البوت معطل حالياً.")
         return
 
-    # تحقق الاشتراك في القنوات
     is_subscribed = await check_subscription(user.id, context.bot)
     if not is_subscribed:
         channels = state.get("subscription_channels", [])
@@ -82,13 +76,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ch_username = ch if ch.startswith("@") else "@" + ch
             buttons.append([InlineKeyboardButton(text=f"اشترك في {ch_username}", url=f"https://t.me/{ch_username.lstrip('@')}")])
         keyboard = InlineKeyboardMarkup(buttons)
-        await update.message.reply_text(
-            "🚫 يرجى الاشتراك في القنوات التالية أولًا ثم أرسل /start مجددًا:",
-            reply_markup=keyboard
-        )
+        await update.message.reply_text("🚫 يرجى الاشتراك في القنوات التالية ثم أرسل /start مجددًا:", reply_markup=keyboard)
         return
 
-    # رسالة الترحيب مع أزرار
     welcome_text = (
         "اهلين انا ماريا ↞ اختصاصي إدارة المجموعات من السبام والخ...\n"
         "↞ كت تويت، يوتيوب، ساوند، وأشياء كثير...\n"
@@ -101,41 +91,42 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup(buttons)
     await context.bot.send_message(chat.id, welcome_text, reply_markup=keyboard)
 
-# الترحيب بانضمام أعضاء جدد للمجموعات
+# ترحيب
 async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = admin.load_state()
     if not state.get("welcome_enabled", True):
-        return  # إذا الترحيب معطل ما نرسل شيء
-
+        return
     for member in update.message.new_chat_members:
-        await update.message.reply_text(f"أهلاً ومرحباً بك يا {member.mention_html()} في المجموعة 🎉", parse_mode="HTML")
+        await update.message.reply_text(f"أهلاً وسهلاً {member.mention_html()} 🎉", parse_mode="HTML")
 
-# استقبال انضمام بوت لمجموعة جديدة
+# حفظ المجموعة الجديدة
 async def welcome_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.type in ["group", "supergroup"]:
         await save_group(chat.id)
 
-# التعامل مع الردود الجاهزة
+# دالة موحدة للترحيب
+async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await welcome_group(update, context)
+    await welcome_new_members(update, context)
+
+# التعامل مع الردود
 async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    reply = replies.get_reply(text)
+    reply = await replies.get_reply(update, context, text)
     if reply:
         await update.message.reply_text(reply)
 
-# التعامل مع حماية السبام (مثال)
+# التعامل مع السبام
 async def handle_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await spam.filter_spam(update, context):
-        # تم حظر الرسالة كسبام
         return True
     return False
 
+# الرسائل العامة
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # فلترة السبام أولاً
     if await handle_spam(update, context):
         return
-
-    # الردود الجاهزة
     await handle_replies(update, context)
 
 if __name__ == "__main__":
@@ -144,15 +135,11 @@ if __name__ == "__main__":
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # تسجيل المعالجات
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_members))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_group))
-
-    # ردود النصوص والفلترة
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_messages))
 
-    # لوحة تحكم المالك
+    # لوحة التحكم
     app.add_handler(CommandHandler("admin", admin.show_admin_panel))
     app.add_handler(CallbackQueryHandler(admin.handle_admin_buttons))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), admin.handle_admin_text))
