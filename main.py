@@ -5,20 +5,17 @@ import json, os, threading, time
 
 TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
 OWNER_ID = 1310488710
-DEFAULT_CHANNEL = "T_4IJ"
+DEFAULT_CHANNEL = ""  # اتركها فارغة، اضبطها لاحقاً من لوحة التحكم أو الأمر /setsub
 
 bot = telebot.TeleBot(TOKEN)
 os.makedirs("data", exist_ok=True)
 
 def jload(path, default):
-    if not os.path.exists(path):
-        jdump(path, default)
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if not os.path.exists(path): jdump(path, default)
+    with open(path, "r", encoding="utf-8") as f: return json.load(f)
 
 def jdump(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(path, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
 
 settings = jload("data/settings.json", {"sub_channel": DEFAULT_CHANNEL})
 users = jload("data/users.json", {})
@@ -35,16 +32,18 @@ def save_all():
 
 def log_event(event):
     logs.append(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {event}")
-    if len(logs) > 500:
-        logs.pop(0)  # تخزين حتى 500 سجل
+    if len(logs) > 500: logs.pop(0)  # تخزين حتى 500 سجل
     save_all()
 
-def is_admin(uid):
-    return uid == OWNER_ID
+def is_admin(uid): return uid == OWNER_ID
 
 def check_sub(uid):
+    channel = settings.get("sub_channel")
+    if not channel:
+        # إذا لم يتم تعيين قناة الاشتراك
+        return True  # اسمح بالوصول مؤقتاً أو يمكنك منع الاستخدام حسب حاجتك
     try:
-        chat = bot.get_chat_member(f"@{settings['sub_channel']}", uid)
+        chat = bot.get_chat_member(f"@{channel}", uid)
         return chat.status in ['member', 'administrator', 'creator']
     except Exception as e:
         print(f"Error in check_sub: {e}")
@@ -60,9 +59,14 @@ def start(message):
         return bot.reply_to(message, "🚫 أنت محظور من استخدام البوت.")
     if not is_admin(uid) and not check_sub(uid):
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("📢 اشترك بالقناة", url=f"https://t.me/{settings['sub_channel']}"))
+        channel = settings.get("sub_channel")
+        if channel:
+            kb.add(types.InlineKeyboardButton("📢 اشترك بالقناة", url=f"https://t.me/{channel}"))
+        else:
+            # عرض القناة الافتراضية @T_4IJ في الواجهة
+            kb.add(types.InlineKeyboardButton("📢 اشترك بالقناة @T_4IJ", url="https://t.me/T_4IJ"))
         kb.add(types.InlineKeyboardButton("✅ تحقّق", callback_data="verify_sub"))
-        return bot.send_message(message.chat.id, "⚠️ يجب الاشتراك في القناة لاستخدام البوت.", reply_markup=kb)
+        return bot.send_message(message.chat.id, f"⚠️ يجب الاشتراك في القناة لاستخدام البوت.\n\nمعرف القناة: @T_4IJ", reply_markup=kb)
     if is_admin(uid):
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("🛠️ لوحة تحكم", callback_data="admin_panel"))
@@ -73,8 +77,7 @@ def start(message):
     # إشعار المالك بدخول مستخدم جديد
     try:
         bot.send_message(OWNER_ID, f"👤 مستخدم جديد دخل البوت:\nID: {uid}\nName: {message.from_user.first_name}")
-    except Exception as e:
-        print(f"Error sending new user notification: {e}")
+    except: pass
 
 @bot.callback_query_handler(func=lambda c: c.data == "verify_sub")
 def verify_sub(call):
@@ -106,28 +109,13 @@ def set_channel(call):
 def save_channel(message):
     settings["sub_channel"] = message.text.strip().replace("@", "")
     save_all()
-    bot.reply_to(message, f"✅ تم حفظ قناة الاشتراك: {settings['sub_channel']}")
-    log_event(f"المالك غيّر قناة الاشتراك إلى: {settings['sub_channel']}")
+    bot.reply_to(message, f"✅ تم حفظ قناة الاشتراك: @{settings['sub_channel']}")
+    log_event(f"المالك غيّر قناة الاشتراك إلى: @{settings['sub_channel']}")
 
 @bot.callback_query_handler(func=lambda c: c.data == "stats")
 def stats(call):
     if not is_admin(call.from_user.id): return
-    text = (
-        f"👥 عدد المستخدمين: {len(users)}\n"
-        f"🚫 عدد المحظورين: {len(banned)}\n"
-        f"⚠️ التحذيرات المسجلة: {len(warns)}"
-    )
-    bot.send_message(call.message.chat.id, text)
-
-@bot.callback_query_handler(func=lambda c: c.data == "ban_list")
-def ban_list(call):
-    if not is_admin(call.from_user.id): return
-    if not banned:
-        bot.send_message(call.message.chat.id, "🚫 قائمة الحظر فارغة.")
-        return
-    text = "🚫 قائمة المستخدمين المحظورين:\n"
-    for user_id in banned:
-        text += f"- {user_id}\n"
+    text = f"👥 عدد المستخدمين: {len(users)}\n🚫 عدد المحظورين: {len(banned)}\n⚠️ التحذيرات المسجلة: {len(warns)}"
     bot.send_message(call.message.chat.id, text)
 
 @bot.callback_query_handler(func=lambda c: c.data == "broadcast")
@@ -142,9 +130,8 @@ def do_broadcast(msg):
         try:
             bot.send_message(uid, msg.text)
             sent += 1
-        except Exception as e:
+        except:
             failed += 1
-            print(f"Broadcast error sending to {uid}: {e}")
     bot.reply_to(msg, f"✅ تم الإرسال إلى {sent} مستخدم، فشل {failed}.")
     log_event(f"المالك بث رسالة: {msg.text}")
 
@@ -192,7 +179,7 @@ def warn_user(msg):
             # بدء مؤقت لفك الكتم
             threading.Thread(target=auto_unmute, args=(msg.chat.id, int(uid), 300)).start()
         except Exception as e:
-            print(f"Mute error: {e}")
+            print("Mute error:", e)
 
     # حظر تلقائي بعد 3 تحذيرات
     if warns[uid] >= 3:
@@ -205,46 +192,34 @@ def warn_user(msg):
 def auto_unmute(chat_id, user_id, delay_seconds):
     time.sleep(delay_seconds)
     try:
-        bot.restrict_chat_member(chat_id, user_id, types.ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_polls=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True,
-            can_change_info=True,
-            can_invite_users=True,
-            can_pin_messages=True
-        ))
+        bot.restrict_chat_member(chat_id, user_id, types.ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True, can_change_info=True, can_invite_users=True, can_pin_messages=True))
         bot.send_message(chat_id, f"🔊 تم فك كتم المستخدم {user_id} بعد انتهاء المدة.")
         log_event(f"المستخدم {user_id} تم فك كتمه تلقائياً بعد انتهاء مدة الكتم.")
     except Exception as e:
-        print(f"Unmute error: {e}")
+        print("Unmute error:", e)
 
 # حماية من الروابط في المجموعات
 @bot.message_handler(content_types=['text'])
 def protect_links(msg):
-    if msg.text and ('http://' in msg.text or 'https://' in msg.text):
+    if 'http://' in msg.text or 'https://' in msg.text:
         if msg.chat.type in ['group', 'supergroup'] and not is_admin(msg.from_user.id):
             try:
                 bot.delete_message(msg.chat.id, msg.message_id)
                 bot.send_message(msg.chat.id, f"🚫 الروابط ممنوعة يا {msg.from_user.first_name}!")
-            except Exception as e:
-                print(f"Delete message error (links): {e}")
+            except: pass
 
 # فلتر كلمات ممنوعة
 bad_words = ["كلب", "حيوان", "تافه", "سخيف", "غبي"]
 @bot.message_handler(content_types=['text'])
 def filter_bad_words(msg):
     if msg.chat.type in ['group', 'supergroup'] and not is_admin(msg.from_user.id):
-        if msg.text:
-            for word in bad_words:
-                if word in msg.text.lower():
-                    try:
-                        bot.delete_message(msg.chat.id, msg.message_id)
-                        bot.send_message(msg.chat.id, f"🚫 لا تستخدم كلمات غير لائقة يا {msg.from_user.first_name}!")
-                        return
-                    except Exception as e:
-                        print(f"Delete message error (bad words): {e}")
+        for word in bad_words:
+            if word in msg.text.lower():
+                try:
+                    bot.delete_message(msg.chat.id, msg.message_id)
+                    bot.send_message(msg.chat.id, f"🚫 لا تستخدم كلمات غير لائقة يا {msg.from_user.first_name}!")
+                    return
+                except: pass
 
 @bot.message_handler(commands=["help"])
 def help_user(msg):
@@ -260,19 +235,6 @@ def help_user(msg):
         "/setsub - تعيين قناة الاشتراك"
     )
     bot.reply_to(msg, text)
-
-# دعم أمر /setsub لتغيير قناة الاشتراك مباشرة
-@bot.message_handler(commands=["setsub"])
-def cmd_setsub(msg):
-    if not is_admin(msg.from_user.id): return
-    args = msg.text.split()
-    if len(args) != 2:
-        return bot.reply_to(msg, "❌ الرجاء إرسال المعرف الصحيح مع الأمر. مثال:\n/setsub T_4IJ")
-    new_channel = args[1].strip().replace("@", "")
-    settings["sub_channel"] = new_channel
-    save_all()
-    bot.reply_to(msg, f"✅ تم تعيين قناة الاشتراك إلى: {new_channel}")
-    log_event(f"المالك غيّر قناة الاشتراك عبر الأمر إلى: {new_channel}")
 
 print("🚀 Bot is running...")
 bot.infinity_polling()
