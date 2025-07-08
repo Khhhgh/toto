@@ -414,4 +414,5 @@ def welcome_new_members(message):
     if not group.get("welcome", True):
         return
     for new_member in message.new_chat_members:
-        if new_member.is_bot
+        if new_member.is_bot:
+    continue
