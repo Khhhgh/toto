@@ -12,7 +12,7 @@ bot_token = "7362214073:AAHfJS5mh7O2xDPTvfVKU3ix35prCeZxgfc"  # استبدل ه�
 app = Client("video_downloader_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
 # قائمة المديرين المسموح لهم بالتحكم
-admins = [1310488710]  # ضع هنا ID المديرين
+admins = [8011996271]  # ضع هنا ID المديرين
 
 # تأكد من أن مجلد downloads موجود
 if not os.path.exists('downloads'):
