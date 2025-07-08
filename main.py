@@ -6,7 +6,7 @@ import yt_dlp
 # تعيين API ID و API Hash و Bot Token بشكل ثابت داخل الكود
 api_id = 10045162  # استبدل هذا بـ API ID الخاص بك
 api_hash = "5b58442987a667be5f6a521f7de4a961"  # استبدل هذا بـ API Hash الخاص بك
-bot_token = "7688125082:AAG_htr5oru-4xCkjYFG0hVzjHQJ2-8QWHo"  # استبدل هذا بـ Bot Token الخاص بك
+bot_token = "7362214073:AAHfJS5mh7O2xDPTvfVKU3ix35prCeZxgfc"  # استبدل هذا بـ Bot Token الخاص بك
 
 # إعداد البوت باستخدام Pyrogram
 app = Client("video_downloader_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
