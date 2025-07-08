@@ -218,5 +218,14 @@ async def help(client, callback_query):
     """
     await callback_query.edit_message_text(help_message)
 
+# إشعار عند دخول عضو جديد
+@app.on_chat_member_updated()
+async def new_member(client, message):
+    if message.new_chat_member:
+        # إشعار المالك عند دخول عضو جديد
+        for admin in admins:
+            user = await app.get_users(admin)
+            await app.send_message(user.id, f"أهلاً بالعضو الجديد: {message.new_chat_member.user.first_name}")
+
 # تشغيل البوت
 app.run()
