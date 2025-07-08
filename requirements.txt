@@ -4,3 +4,5 @@ emoji==2.11.1
 aiofiles==23.2.1
 pyrogram
 yt-dlp
+tgcrypto
+
