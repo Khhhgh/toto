@@ -1,4 +1,4 @@
-python-telegram-bot==20.7
-aiofiles==23.2.1
+pyTelegramBotAPI==4.14.0
+pymongo==4.6.3
 emoji==2.11.1
-pyTelegramBotAPI
+aiofiles==23.2.1
