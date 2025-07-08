@@ -1,418 +1,226 @@
-import telebot
-from telebot import types
-from pymongo import MongoClient
-import time
 import os
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import yt_dlp
 
-# ====== الإعدادات ======
-TOKEN = "7547739104:AAHkVp4JZ6Sr3PMEPWvfY-XrJ7-mtEFLEUw"
-OWNER_ID = 8011996271
+# تعيين API ID و API Hash و Bot Token بشكل ثابت داخل الكود
+api_id = 10045162  # استبدل هذا بـ API ID الخاص بك
+api_hash = "5b58442987a667be5f6a521f7de4a961"  # استبدل هذا بـ API Hash الخاص بك
+bot_token = "7688125082:AAG_htr5oru-4xCkjYFG0hVzjHQJ2-8QWHo"  # استبدل هذا بـ Bot Token الخاص بك
 
-REQUIRED_CHANNEL = "@YourChannelUsername"  # غيّر اسم القناة هنا
+# إعداد البوت باستخدام Pyrogram
+app = Client("video_downloader_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
-MONGO_URI = os.environ.get("MONGODB_URI")
-if not MONGO_URI:
-    print("عيّن متغير البيئة MONGODB_URI في هيروكو مع رابط MongoDB.")
-    exit(1)
+# قائمة المديرين المسموح لهم بالتحكم
+admins = [1310488710]  # ضع هنا ID المديرين
 
-client = MongoClient(MONGO_URI)
-db = client['maria_bot_db']
-groups_col = db['groups']
+# قائمة القنوات الخاصة بالاشتراك الجباري
+required_channels = []
 
-bot = telebot.TeleBot(TOKEN)
+# قائمة الأعضاء المحظورين
+banned_users = []
 
-lock_types_map_ar = {
-    "الصور": "photo",
-    "الفيديو": "video",
-    "الروابط": "links",
-    "التوجيه": "forward",
-    "الملصقات": "sticker",
-    "الملفات": "document",
-    "الصوتيات": "audio",
-    "الصوت": "voice",
-}
+# وظيفة لتحميل الفيديو باستخدام yt-dlp
+def download_video(url):
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'quiet': False,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+    return info
 
-# ====== دوال الصلاحيات ======
-def is_owner(user_id):
-    return user_id == OWNER_ID
+# دالة لإرسال الأزرار الشفافة الخاصة بالمالكين
+def get_admin_buttons():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("عرض الفيديوهات المحملة", callback_data="show_downloads")],
+        [InlineKeyboardButton("حذف الفيديوهات", callback_data="delete_downloads")],
+        [InlineKeyboardButton("إيقاف تحميل من يوتيوب", callback_data="disable_youtube")],
+        [InlineKeyboardButton("إيقاف تحميل من إنستجرام", callback_data="disable_instagram")],
+        [InlineKeyboardButton("إعدادات البوت", callback_data="bot_settings")],
+        [InlineKeyboardButton("إضافة قناة اشتراك جباري", callback_data="add_channel")],
+        [InlineKeyboardButton("حذف قناة اشتراك جباري", callback_data="remove_channel")],
+        [InlineKeyboardButton("حظر عضو", callback_data="ban_user")],
+        [InlineKeyboardButton("مساعدة", callback_data="help")],
+    ])
 
-def is_group_owner(chat_id, user_id):
-    try:
-        member = bot.get_chat_member(chat_id, user_id)
-        return member.status in ["administrator", "creator"]
-    except Exception:
-        return False
+# دالة لإرسال الأزرار الشفافة الخاصة بالزوار
+def get_visitor_buttons():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("تحميل من يوتيوب", callback_data="download_youtube")],
+        [InlineKeyboardButton("تحميل من إنستجرام", callback_data="download_instagram")],
+        [InlineKeyboardButton("تحميل من تويتر", callback_data="download_twitter")],
+        [InlineKeyboardButton("تحميل من سناب شات", callback_data="download_snapchat")],
+        [InlineKeyboardButton("تحميل من فيسبوك", callback_data="download_facebook")],
+        [InlineKeyboardButton("تحميل من تيك توك", callback_data="download_tiktok")],
+        [InlineKeyboardButton("مساعدة", callback_data="help")],
+    ])
 
-def is_bot_admin(chat_id, user_id):
-    group = groups_col.find_one({"chat_id": chat_id})
-    if not group:
-        return False
-    admins = group.get("admins", [])
+# دالة للتحقق من كون المستخدم مدير
+def is_admin(user_id):
     return user_id in admins
 
-# ====== قواعد البيانات ======
-def get_group(chat_id):
-    group = groups_col.find_one({"chat_id": chat_id})
-    if not group:
-        group = {
-            "chat_id": chat_id,
-            "admins": [],
-            "locks": {v: False for v in lock_types_map_ar.values()},
-            "welcome": True,
-            "group_subscription_required": True,
-            "chat_locked": False,  # لقفل الدردشة نصيا
-        }
-        groups_col.insert_one(group)
-    return group
-
-def update_group(chat_id, data):
-    groups_col.update_one({"chat_id": chat_id}, {"$set": data}, upsert=True)
-
-# ====== الاشتراك الإجباري ======
-def check_group_subscription(chat_id, user_id):
-    group = get_group(chat_id)
-    if not group.get("group_subscription_required", True):
-        return True
-    try:
-        member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except Exception:
-        return False
-
-def require_subscription(func):
-    def wrapper(message):
-        if not check_group_subscription(message.chat.id, message.from_user.id):
-            bot.reply_to(message, f"يجب الاشتراك في القناة {REQUIRED_CHANNEL} أولاً لاستخدام القروب.")
-            return
-        return func(message)
-    return wrapper
-
-# ====== أوامر الاشتراك الإجباري (مالك القروب) ======
-@bot.message_handler(commands=["تفعيل_الاشتراك"])
-def enable_subscription(message):
-    if not is_group_owner(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "فقط مالك القروب يمكنه تفعيل الاشتراك الإجباري.")
-        return
-    update_group(message.chat.id, {"group_subscription_required": True})
-    bot.reply_to(message, "تم تفعيل الاشتراك الإجباري في هذا القروب.")
-
-@bot.message_handler(commands=["تعطيل_الاشتراك"])
-def disable_subscription(message):
-    if not is_group_owner(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "فقط مالك القروب يمكنه تعطيل الاشتراك الإجباري.")
-        return
-    update_group(message.chat.id, {"group_subscription_required": False})
-    bot.reply_to(message, "تم تعطيل الاشتراك الإجباري في هذا القروب.")
-
-# ====== زر التعليمات، تواصل، واضف البوت ======
-@bot.message_handler(commands=["start"])
-def start_handler(message):
-    keyboard = types.InlineKeyboardMarkup()
-    btn_help = types.InlineKeyboardButton("تعليمات", callback_data="show_help")
-    btn_contact = types.InlineKeyboardButton("تواصل مع المطور", url="https://t.me/T_4IJ")
-    bot_username = bot.get_me().username
-    invite_url = f"https://t.me/{bot_username}?startgroup=true"
-    btn_add_bot = types.InlineKeyboardButton("اضف البوت إلى مجموعتك", url=invite_url)
-    keyboard.add(btn_help)
-    keyboard.add(btn_contact)
-    keyboard.add(btn_add_bot)
-
-    bot.send_message(message.chat.id,
-        "أهلاً بك في بوت ماريا للحماية المتطورة\n"
-        "استخدم الأزرار أدناه للاطلاع على التعليمات أو التواصل مع المطور أو لإضافة البوت إلى مجموعتك.",
-        reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "show_help")
-def callback_show_help(call):
-    help_text = (
-        "قائمة أوامر البوت:\n\n"
-        "مالك البوت:\n"
-        "broadcast نص الإذاعة\n"
-        "admin\n"
-        "رفع_مشرف (بالرد على رسالة العضو)\n"
-        "تنزيل_مشرف (بالرد)\n\n"
-        "مالك القروب:\n"
-        "تفعيل_الاشتراك\n"
-        "تعطيل_الاشتراك\n"
-        "كتم (بالرد)\n"
-        "فك_كتم (بالرد)\n"
-        "حظر (بالرد)\n"
-        "الغاء_حظر (بالرد)\n"
-        "قفل نوع (مثل: الصور، الروابط)\n"
-        "فتح نوع\n"
-        "تفعيل_الترحيب\n"
-        "تعطيل_الترحيب\n"
-        "قفل_الدردشة\n"
-        "فتح_الدردشة\n\n"
-        "ملاحظة: يجب الرد على العضو عند تنفيذ أوامر الحظر والكتم والمشرفين."
-    )
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, help_text)
-
-# ====== أوامر عامة ======
-@bot.message_handler(commands=["help"])
-@require_subscription
-def help_handler(message):
-    text = (
-        "أوامر البوت:\n\n"
-        "مالك البوت:\n"
-        "broadcast نص\n"
-        "admin\n"
-        "رفع_مشرف (بالرد على رسالة العضو)\n"
-        "تنزيل_مشرف (بالرد)\n\n"
-        "مالك القروب:\n"
-        "تفعيل_الاشتراك\n"
-        "تعطيل_الاشتراك\n"
-        "كتم (بالرد)\n"
-        "فك_كتم (بالرد)\n"
-        "حظر (بالرد)\n"
-        "الغاء_حظر (بالرد)\n"
-        "قفل نوع\n"
-        "فتح نوع\n"
-        "تفعيل_الترحيب\n"
-        "تعطيل_الترحيب\n"
-        "قفل_الدردشة\n"
-        "فتح_الدردشة\n"
-    )
-    bot.send_message(message.chat.id, text)
-
-# ====== إدارة المشرفين (مالك البوت فقط) ======
-def get_target_user(message):
-    if not message.reply_to_message:
-        bot.reply_to(message, "الرجاء الرد على رسالة العضو.")
-        return None
-    return message.reply_to_message.from_user
-
-@bot.message_handler(commands=["رفع_مشرف"])
-def promote_admin(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "فقط مالك البوت يمكنه رفع مشرف.")
-        return
-    target = get_target_user(message)
-    if not target:
-        return
-    group = get_group(message.chat.id)
-    admins = group.get("admins", [])
-    if target.id in admins:
-        bot.reply_to(message, f"العضو {target.first_name} مشرف بالفعل.")
-        return
-    admins.append(target.id)
-    update_group(message.chat.id, {"admins": admins})
-    bot.reply_to(message, f"تم رفع {target.first_name} مشرف.")
-
-@bot.message_handler(commands=["تنزيل_مشرف"])
-def demote_admin(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "فقط مالك البوت يمكنه تنزيل مشرف.")
-        return
-    target = get_target_user(message)
-    if not target:
-        return
-    group = get_group(message.chat.id)
-    admins = group.get("admins", [])
-    if target.id not in admins:
-        bot.reply_to(message, f"العضو {target.first_name} ليس مشرفاً.")
-        return
-    admins.remove(target.id)
-    update_group(message.chat.id, {"admins": admins})
-    bot.reply_to(message, f"تم تنزيل {target.first_name} من المشرفين.")
-
-@bot.message_handler(commands=["admin"])
-def show_admins(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "هذا الأمر خاص بمالك البوت فقط.")
-        return
-    all_groups = groups_col.find()
-    text = ""
-    for group in all_groups:
-        chat_id = group["chat_id"]
-        admins = group.get("admins", [])
-        if not admins:
-            continue
-        text += f"قروب: {chat_id}\nالمشرفين:\n"
-        for admin_id in admins:
-            try:
-                user = bot.get_chat_member(chat_id, admin_id).user
-                name = user.first_name
-                username = "@" + user.username if user.username else "لا يوجد"
-            except Exception:
-                name = "غير معروف"
-                username = "غير معروف"
-            text += f"- {name} ({username}) — {admin_id}\n"
-        text += "\n"
-    if not text:
-        text = "لا يوجد مشرفين مسجلين."
-    bot.send_message(message.chat.id, text)
-
-# ====== إذاعة (مالك البوت فقط) ======
-@bot.message_handler(commands=["broadcast"])
-def broadcast_handler(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "هذا الأمر خاص بمالك البوت فقط.")
-        return
-    text = message.text.partition(" ")[2]
-    if not text:
-        bot.reply_to(message, "أرسل الأمر مع نص الإذاعة.")
-        return
-    all_groups = groups_col.find()
-    success = 0
-    failed = 0
-    for group in all_groups:
-        chat_id = group["chat_id"]
+# دالة للتحقق من اشتراك المستخدم في القنوات المطلوبة
+async def check_subscription(user_id):
+    for channel in required_channels:
         try:
-            bot.send_message(chat_id, f"إذاعة من المالك:\n\n{text}")
-            success += 1
-        except Exception:
-            failed += 1
-    bot.reply_to(message, f"تم إرسال الإذاعة إلى {success} قروب.\nفشل في {failed} قروب.")
+            chat_member = await app.get_chat_member(channel, user_id)
+            if chat_member.status not in ['member', 'administrator', 'creator']:
+                return False
+        except Exception as e:
+            return False
+    return True
 
-# ====== أوامر الحماية ======
-@bot.message_handler(commands=["كتم"])
-def mute_user(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id) or is_bot_admin(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "ليس لديك صلاحية.")
+# رد على بدء المحادثة مع البوت (رسالة الترحيب)
+@app.on_message(filters.command("start"))
+async def start(client, message):
+    user_first_name = message.from_user.first_name
+    await message.reply(f"مرحبًا {user_first_name}، أنا بوت تنزيل الفيديوهات! اختر الفيديو الذي ترغب في تنزيله من خلال الأزرار أدناه.", reply_markup=get_visitor_buttons())
+
+# الرد على رسالة تحتوي على رابط
+@app.on_message(filters.text)
+async def handle_message(client, message):
+    if message.text.startswith("http"):
+        # التحقق من الاشتراك في القنوات الجباريّة
+        if await check_subscription(message.from_user.id):
+            try:
+                video_url = message.text
+                video_info = download_video(video_url)
+
+                # إرسال الفيديو للمستخدم بعد التنزيل
+                if os.path.exists(f"downloads/{video_info['title']}.mp4"):
+                    await message.reply_video(f"downloads/{video_info['title']}.mp4")
+                else:
+                    await message.reply("حدث خطأ أثناء تنزيل الفيديو.")
+                
+                # تحديد الأزرار بناءً على المستخدم (مالك أو زائر)
+                if is_admin(message.from_user.id):
+                    message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_admin_buttons())
+                else:
+                    message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_visitor_buttons())
+
+            except Exception as e:
+                message.reply(f"حدث خطأ: {e}")
+        else:
+            message.reply("أنت بحاجة للاشتراك في القنوات المطلوبة لاستخدام البوت.")
+
+# الرد على الأوامر الخاصة بالمدير
+@app.on_callback_query(filters.regex("add_channel"))
+def add_channel(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    target = get_target_user(message)
-    if not target:
+
+    callback_query.answer("يرجى إرسال رابط القناة التي تريد إضافتها.")
+
+@app.on_message(filters.text)
+async def handle_add_channel(message):
+    if message.text.startswith("https://t.me/"):
+        required_channels.append(message.text)
+        await message.reply(f"تم إضافة القناة {message.text} إلى القنوات الجبارة.")
+    else:
+        await message.reply("يرجى إرسال رابط صحيح للقناة.")
+
+@app.on_callback_query(filters.regex("remove_channel"))
+def remove_channel(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
+    
+    callback_query.answer("يرجى إرسال رابط القناة التي تريد حذفها.")
+
+@app.on_message(filters.text)
+async def handle_remove_channel(message):
+    if message.text in required_channels:
+        required_channels.remove(message.text)
+        await message.reply(f"تم حذف القناة {message.text} من القنوات الجبارة.")
+    else:
+        await message.reply("هذه القناة غير موجودة في القائمة.")
+
+@app.on_callback_query(filters.regex("ban_user"))
+def ban_user(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        return
+
+    callback_query.answer("يرجى إرسال ID العضو الذي تريد حظره.")
+
+@app.on_message(filters.text)
+async def handle_ban_user(message):
     try:
-        until_date = int(time.time()) + 60*60*24*7
-        bot.restrict_chat_member(message.chat.id, target.id, can_send_messages=False, until_date=until_date)
-        bot.reply_to(message, f"تم كتم {target.first_name} لمدة أسبوع.")
-    except Exception as e:
-        bot.reply_to(message, f"خطأ: {e}")
+        user_id = int(message.text)
+        if user_id not in banned_users:
+            banned_users.append(user_id)
+            await message.reply(f"تم حظر العضو {user_id}.")
+        else:
+            await message.reply(f"العضو {user_id} محظور بالفعل.")
+    except ValueError:
+        await message.reply("يرجى إرسال ID صالح للعضو.")
 
-@bot.message_handler(commands=["فك_كتم"])
-def unmute_user(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id) or is_bot_admin(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "ليس لديك صلاحية.")
+@app.on_callback_query(filters.regex("show_downloads"))
+def show_downloads(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    target = get_target_user(message)
-    if not target:
-        return
-    try:
-        bot.restrict_chat_member(message.chat.id, target.id, can_send_messages=True)
-        bot.reply_to(message, f"تم فك كتم {target.first_name}.")
-    except Exception as e:
-        bot.reply_to(message, f"خطأ: {e}")
+    
+    video_files = os.listdir("downloads/")
+    if video_files:
+        videos = "\n".join(video_files)
+        callback_query.answer(f"الفيديوهات المحملة:\n{videos}")
+    else:
+        callback_query.answer("لا توجد فيديوهات محملة حاليًا.")
 
-@bot.message_handler(commands=["حظر"])
-def ban_user(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id) or is_bot_admin(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "ليس لديك صلاحية.")
+@app.on_callback_query(filters.regex("delete_downloads"))
+def delete_downloads(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    target = get_target_user(message)
-    if not target:
-        return
-    try:
-        bot.kick_chat_member(message.chat.id, target.id)
-        bot.reply_to(message, f"تم طرد {target.first_name} من القروب.")
-    except Exception as e:
-        bot.reply_to(message, f"خطأ: {e}")
+    
+    video_files = os.listdir("downloads/")
+    if video_files:
+        for video in video_files:
+            os.remove(f"downloads/{video}")
+        callback_query.answer("تم حذف جميع الفيديوهات.")
+    else:
+        callback_query.answer("لا توجد فيديوهات لحذفها.")
 
-@bot.message_handler(commands=["الغاء_حظر"])
-def unban_user(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id) or is_bot_admin(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "ليس لديك صلاحية.")
+@app.on_callback_query(filters.regex("disable_youtube"))
+def disable_youtube(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    target = get_target_user(message)
-    if not target:
-        return
-    try:
-        bot.unban_chat_member(message.chat.id, target.id)
-        bot.reply_to(message, f"تم إلغاء حظر {target.first_name}.")
-    except Exception as e:
-        bot.reply_to(message, f"خطأ: {e}")
+    
+    callback_query.answer("تم إيقاف تحميل الفيديوهات من يوتيوب.")
+    # يمكنك إضافة منطق لتعطيل تحميل الفيديوهات من يوتيوب هنا.
 
-# ====== قفل وفتح أنواع الرسائل ======
-@bot.message_handler(commands=["قفل"])
-def lock_type(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "فقط مالك القروب ومالك البوت يمكنهم قفل الأنواع.")
+@app.on_callback_query(filters.regex("disable_instagram"))
+def disable_instagram(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "أرسل نوع القفل بعد الأمر، مثل:\nقفل الصور")
-        return
-    lock_name_ar = args[1].strip()
-    if lock_name_ar not in lock_types_map_ar:
-        bot.reply_to(message, "نوع القفل غير معروف. الأنواع المتاحة:\n" + ", ".join(lock_types_map_ar.keys()))
-        return
-    lock_key = lock_types_map_ar[lock_name_ar]
-    group = get_group(message.chat.id)
-    locks = group.get("locks", {})
-    locks[lock_key] = True
-    update_group(message.chat.id, {"locks": locks})
-    bot.reply_to(message, f"تم قفل {lock_name_ar} في القروب.")
+    
+    callback_query.answer("تم إيقاف تحميل الفيديوهات من إنستجرام.")
+    # يمكنك إضافة منطق لتعطيل تحميل الفيديوهات من إنستجرام هنا.
 
-@bot.message_handler(commands=["فتح"])
-def unlock_type(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "فقط مالك القروب ومالك البوت يمكنهم فتح الأنواع.")
+@app.on_callback_query(filters.regex("bot_settings"))
+def bot_settings(client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "أرسل نوع الفتح بعد الأمر، مثل:\nفتح الصور")
-        return
-    lock_name_ar = args[1].strip()
-    if lock_name_ar not in lock_types_map_ar:
-        bot.reply_to(message, "نوع الفتح غير معروف. الأنواع المتاحة:\n" + ", ".join(lock_types_map_ar.keys()))
-        return
-    lock_key = lock_types_map_ar[lock_name_ar]
-    group = get_group(message.chat.id)
-    locks = group.get("locks", {})
-    locks[lock_key] = False
-    update_group(message.chat.id, {"locks": locks})
-    bot.reply_to(message, f"تم فتح {lock_name_ar} في القروب.")
+    
+    callback_query.answer("إعدادات البوت: يمكنك تعديل إعدادات التحميل، اللغة، وأذونات أخرى.")
 
-# ====== أوامر قفل وفتح الدردشة النصية ======
-@bot.message_handler(commands=["قفل_الدردشة"])
-def lock_chat(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "فقط مالك القروب ومالك البوت يمكنهم قفل الدردشة.")
-        return
-    group = get_group(message.chat.id)
-    update_group(message.chat.id, {"chat_locked": True})
-    # تقييد إرسال الرسائل النصية للجميع إلا الأدمن والمالك
-    bot.set_chat_permissions(message.chat.id, types.ChatPermissions(can_send_messages=False))
-    bot.reply_to(message, "تم قفل الدردشة النصية في القروب.")
+@app.on_callback_query(filters.regex("help"))
+def help(client, callback_query):
+    help_message = """
+    استخدم الأزرار لاختيار المصدر الذي تريد تحميل الفيديو منه.
+    يمكنك التحكم في إعدادات البوت من خلال لوحة التحكم الخاصة بالمدير:
+    - عرض الفيديوهات المحملة
+    - حذف الفيديوهات المحملة
+    - حظر الأعضاء
+    """
+    callback_query.answer(help_message)
 
-@bot.message_handler(commands=["فتح_الدردشة"])
-def unlock_chat(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "فقط مالك القروب ومالك البوت يمكنهم فتح الدردشة.")
-        return
-    group = get_group(message.chat.id)
-    update_group(message.chat.id, {"chat_locked": False})
-    # السماح للجميع بإرسال الرسائل
-    bot.set_chat_permissions(message.chat.id, types.ChatPermissions(can_send_messages=True,
-                                                                   can_send_media_messages=True,
-                                                                   can_send_other_messages=True,
-                                                                   can_add_web_page_previews=True))
-    bot.reply_to(message, "تم فتح الدردشة النصية في القروب.")
-
-# ====== الترحيب ======
-@bot.message_handler(commands=["تفعيل_الترحيب"])
-def enable_welcome(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "فقط مالك القروب ومالك البوت يمكنهم تفعيل الترحيب.")
-        return
-    update_group(message.chat.id, {"welcome": True})
-    bot.reply_to(message, "تم تفعيل الترحيب في القروب.")
-
-@bot.message_handler(commands=["تعطيل_الترحيب"])
-def disable_welcome(message):
-    if not (is_owner(message.from_user.id) or is_group_owner(message.chat.id, message.from_user.id)):
-        bot.reply_to(message, "فقط مالك القروب ومالك البوت يمكنهم تعطيل الترحيب.")
-        return
-    update_group(message.chat.id, {"welcome": False})
-    bot.reply_to(message, "تم تعطيل الترحيب في القروب.")
-
-@bot.message_handler(content_types=['new_chat_members'])
-def welcome_new_members(message):
-    group = get_group(message.chat.id)
-    if not group.get("welcome", True):
-        return
-    for new_member in message.new_chat_members:
-        if new_member.is_bot:
-    continue
+# تشغيل البوت
+app.run()
