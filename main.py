@@ -6,7 +6,7 @@ import yt_dlp
 # تعيين API ID و API Hash و Bot Token بشكل ثابت داخل الكود
 api_id = 10045162  # استبدل هذا بـ API ID الخاص بك
 api_hash = "5b58442987a667be5f6a521f7de4a961"  # استبدل هذا بـ API Hash الخاص بك
-bot_token = "7362214073:AAHfJS5mh7O2xDPTvfVKU3ix35prCeZxgfc"  # استبدل هذا بـ Bot Token الخاص بك
+bot_token = "7688125082:AAG_htr5oru-4xCkjYFG0hVzjHQJ2-8QWHo"  # استبدل هذا بـ Bot Token الخاص بك
 
 # إعداد البوت باستخدام Pyrogram
 app = Client("video_downloader_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
@@ -14,24 +14,22 @@ app = Client("video_downloader_bot", api_id=api_id, api_hash=api_hash, bot_token
 # قائمة المديرين المسموح لهم بالتحكم
 admins = [1310488710]  # ضع هنا ID المديرين
 
-# قائمة القنوات الخاصة بالاشتراك الجباري
-required_channels = []
-
-# قائمة الأعضاء المحظورين
-banned_users = []
+# تأكد من أن مجلد downloads موجود
+if not os.path.exists('downloads'):
+    os.makedirs('downloads')
 
 # وظيفة لتحميل الفيديو باستخدام yt-dlp
 def download_video(url):
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'outtmpl': 'downloads/%(title)s.%(ext)s',  # حفظ الفيديو في مجلد downloads
         'quiet': False,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        info = ydl.extract_info(url, download=True)  # تنزيل الفيديو
     return info
 
-# دالة لإرسال الأزرار الشفافة الخاصة بالمالكين
+# دالة لإرسال الأزرار الخاصة بالمالكين
 def get_admin_buttons():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("عرض الفيديوهات المحملة", callback_data="show_downloads")],
@@ -45,7 +43,7 @@ def get_admin_buttons():
         [InlineKeyboardButton("مساعدة", callback_data="help")],
     ])
 
-# دالة لإرسال الأزرار الشفافة الخاصة بالزوار
+# دالة لإرسال الأزرار الخاصة بالزوار
 def get_visitor_buttons():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("تحميل من يوتيوب", callback_data="download_youtube")],
@@ -96,23 +94,23 @@ async def handle_message(client, message):
                 
                 # تحديد الأزرار بناءً على المستخدم (مالك أو زائر)
                 if is_admin(message.from_user.id):
-                    message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_admin_buttons())
+                    await message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_admin_buttons())
                 else:
-                    message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_visitor_buttons())
+                    await message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_visitor_buttons())
 
             except Exception as e:
-                message.reply(f"حدث خطأ: {e}")
+                await message.reply(f"حدث خطأ: {e}")
         else:
-            message.reply("أنت بحاجة للاشتراك في القنوات المطلوبة لاستخدام البوت.")
+            await message.reply("أنت بحاجة للاشتراك في القنوات المطلوبة لاستخدام البوت.")
 
 # الرد على الأوامر الخاصة بالمدير
 @app.on_callback_query(filters.regex("add_channel"))
-def add_channel(client, callback_query):
+async def add_channel(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
 
-    callback_query.answer("يرجى إرسال رابط القناة التي تريد إضافتها.")
+    await callback_query.answer("يرجى إرسال رابط القناة التي تريد إضافتها.")
 
 @app.on_message(filters.text)
 async def handle_add_channel(message):
@@ -123,12 +121,12 @@ async def handle_add_channel(message):
         await message.reply("يرجى إرسال رابط صحيح للقناة.")
 
 @app.on_callback_query(filters.regex("remove_channel"))
-def remove_channel(client, callback_query):
+async def remove_channel(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
-    
-    callback_query.answer("يرجى إرسال رابط القناة التي تريد حذفها.")
+
+    await callback_query.answer("يرجى إرسال رابط القناة التي تريد حذفها.")
 
 @app.on_message(filters.text)
 async def handle_remove_channel(message):
@@ -139,12 +137,12 @@ async def handle_remove_channel(message):
         await message.reply("هذه القناة غير موجودة في القائمة.")
 
 @app.on_callback_query(filters.regex("ban_user"))
-def ban_user(client, callback_query):
+async def ban_user(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
 
-    callback_query.answer("يرجى إرسال ID العضو الذي تريد حظره.")
+    await callback_query.answer("يرجى إرسال ID العضو الذي تريد حظره.")
 
 @app.on_message(filters.text)
 async def handle_ban_user(message):
@@ -159,60 +157,58 @@ async def handle_ban_user(message):
         await message.reply("يرجى إرسال ID صالح للعضو.")
 
 @app.on_callback_query(filters.regex("show_downloads"))
-def show_downloads(client, callback_query):
+async def show_downloads(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
     
     video_files = os.listdir("downloads/")
     if video_files:
         videos = "\n".join(video_files)
-        callback_query.answer(f"الفيديوهات المحملة:\n{videos}")
+        await callback_query.edit_message_text(f"الفيديوهات المحملة:\n{videos}")
     else:
-        callback_query.answer("لا توجد فيديوهات محملة حاليًا.")
+        await callback_query.edit_message_text("لا توجد فيديوهات محملة حاليًا.")
 
 @app.on_callback_query(filters.regex("delete_downloads"))
-def delete_downloads(client, callback_query):
+async def delete_downloads(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
     
     video_files = os.listdir("downloads/")
     if video_files:
         for video in video_files:
             os.remove(f"downloads/{video}")
-        callback_query.answer("تم حذف جميع الفيديوهات.")
+        await callback_query.edit_message_text("تم حذف جميع الفيديوهات.")
     else:
-        callback_query.answer("لا توجد فيديوهات لحذفها.")
+        await callback_query.edit_message_text("لا توجد فيديوهات لحذفها.")
 
 @app.on_callback_query(filters.regex("disable_youtube"))
-def disable_youtube(client, callback_query):
+async def disable_youtube(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
     
-    callback_query.answer("تم إيقاف تحميل الفيديوهات من يوتيوب.")
-    # يمكنك إضافة منطق لتعطيل تحميل الفيديوهات من يوتيوب هنا.
+    await callback_query.edit_message_text("تم إيقاف تحميل الفيديوهات من يوتيوب.")
 
 @app.on_callback_query(filters.regex("disable_instagram"))
-def disable_instagram(client, callback_query):
+async def disable_instagram(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
     
-    callback_query.answer("تم إيقاف تحميل الفيديوهات من إنستجرام.")
-    # يمكنك إضافة منطق لتعطيل تحميل الفيديوهات من إنستجرام هنا.
+    await callback_query.edit_message_text("تم إيقاف تحميل الفيديوهات من إنستجرام.")
 
 @app.on_callback_query(filters.regex("bot_settings"))
-def bot_settings(client, callback_query):
+async def bot_settings(client, callback_query):
     if not is_admin(callback_query.from_user.id):
-        callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
+        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
         return
     
-    callback_query.answer("إعدادات البوت: يمكنك تعديل إعدادات التحميل، اللغة، وأذونات أخرى.")
+    await callback_query.edit_message_text("إعدادات البوت: يمكنك تعديل إعدادات التحميل، اللغة، وأذونات أخرى.")
 
 @app.on_callback_query(filters.regex("help"))
-def help(client, callback_query):
+async def help(client, callback_query):
     help_message = """
     استخدم الأزرار لاختيار المصدر الذي تريد تحميل الفيديو منه.
     يمكنك التحكم في إعدادات البوت من خلال لوحة التحكم الخاصة بالمدير:
@@ -220,7 +216,7 @@ def help(client, callback_query):
     - حذف الفيديوهات المحملة
     - حظر الأعضاء
     """
-    callback_query.answer(help_message)
+    await callback_query.edit_message_text(help_message)
 
 # تشغيل البوت
 app.run()
