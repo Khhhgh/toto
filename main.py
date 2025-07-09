@@ -2,7 +2,6 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
-import os
 import asyncio
 import nest_asyncio
 
@@ -91,13 +90,6 @@ async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ أنت لست المالك!")
 
-# دالة لتفعيل إشعار دخول المستخدمين الجدد
-async def welcome_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if notify_new_users:
-        user_id = update.message.new_chat_members[0].id
-        if user_id != OWNER_ID:
-            await context.bot.send_message(chat_id=OWNER_ID, text=f"🔔 دخل مستخدم جديد إلى البوت: {update.message.new_chat_members[0].full_name}")
-
 # دالة لتنزيل الفيديو أو الصوت بناءً على الموقع المختار
 async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
@@ -107,14 +99,12 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ الرجاء إرسال رابط صالح!")
         return
 
-    # تعريف خيارات yt-dlp
     ydl_opts = {
         'format': 'best',
-        'outtmpl': os.path.join(os.getcwd(), '%(title)s.%(ext)s'),  # حفظ الفيديو في المسار الحالي
-        'quiet': False,  # لعرض تفاصيل التحميل
+        'outtmpl': '/tmp/%(title)s.%(ext)s',  # يمكن تغيير هذا المسار حسب النظام
+        'quiet': False,  # لعرض تفاصيل تحميل الفيديو
     }
 
-    # تخصيص الإعدادات بناءً على الموقع المختار
     if site == 'youtube':
         ydl_opts['extractor_args'] = {'youtube': {'noplaylist': True}}
     elif site == 'tiktok':
@@ -126,21 +116,23 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif site == 'twitter':
         ydl_opts['extractor_args'] = {'twitter': {'download': True}}
 
-    # تحميل الفيديو باستخدام yt-dlp
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
+            # استخراج معلومات الفيديو
             info_dict = ydl.extract_info(url, download=True)
             video_filename = ydl.prepare_filename(info_dict)
 
+            # إرسال الفيديو أو الصوت بناءً على النوع
             await update.message.reply_text(f"✅ تم تنزيل الفيديو من {site.capitalize()} بنجاح: {video_filename}")
 
+            # إذا كان الملف الصوتي، يتم إرساله كـ audio
             if 'audio' in info_dict['formats'][0]['ext']:
                 await update.message.reply_audio(audio=open(video_filename, 'rb'))
             else:
+                # إذا كان الفيديو، يتم إرساله كـ video
                 await update.message.reply_video(video=open(video_filename, 'rb'))
 
         except Exception as e:
-            logger.error(f"Error during download: {e}")
             await update.message.reply_text(f"❌ حدث خطأ أثناء تنزيل الفيديو من {site.capitalize()}: {str(e)}")
 
 # معالجة الأزرار (التحكم في الأزرار)
