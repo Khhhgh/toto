@@ -1,7 +1,7 @@
 import logging
-import yt_dlp
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+import yt_dlp
 
 # إعداد تسجيل الدخول
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -9,7 +9,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # معرف المالك (يمكنك تعديل هذا بالـ user ID الخاص بالمالك)
-OWNER_ID = 1310488710  # معرف المالك
+OWNER_ID = 123456789  # ضع هنا معرف المالك
 
 # قناة الاشتراك الإجباري
 mandatory_channel = None  # لا توجد قناة بشكل افتراضي
@@ -66,25 +66,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("⚙️ مرحبًا بك في لوحة التحكم الخاصة بالمالك. اختر إحدى الخيارات أدناه:", reply_markup=reply_markup)
-    else:
-        await update.message.reply_text("❌ أنت لست المالك!")
-
-# دالة لإضافة قناة اشتراك إجباري
-async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == OWNER_ID:
-        # حفظ القناة الجديدة التي سيتم اشتراك المستخدم فيها
-        global mandatory_channel
-        mandatory_channel = update.message.text.split(" ")[1]
-        await update.message.reply_text(f"تم إضافة القناة بنجاح: {mandatory_channel}")
-    else:
-        await update.message.reply_text("❌ أنت لست المالك!")
-
-# دالة لحذف قناة اشتراك إجباري
-async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == OWNER_ID:
-        global mandatory_channel
-        mandatory_channel = None
-        await update.message.reply_text("تم حذف القناة الاشتراك الإجباري.")
     else:
         await update.message.reply_text("❌ أنت لست المالك!")
 
@@ -201,7 +182,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚡ تم اختيار تويتر. الرجاء إرسال الرابط لتحميله.")
 
 # إعداد البوت
-async def main():
+if __name__ == '__main__':
     # قم بتغيير التوكن الخاص بك هنا
     application = ApplicationBuilder().token("6477545499:AAHkCgwT5Sn1otiMst_sAOmoAp_QC1_ILzA").build()
 
@@ -215,8 +196,4 @@ async def main():
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_user))  # إشعار عند دخول مستخدمين جدد
 
     # بدء البوت
-    await application.run_polling()
-
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+    application.run_polling()
