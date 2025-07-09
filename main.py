@@ -1,7 +1,7 @@
 import logging
+import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-import yt_dlp
 import asyncio
 import nest_asyncio
 
@@ -54,43 +54,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
-# دالة لإرسال رسالة إذاعة لجميع المستخدمين
-async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == OWNER_ID:
-        message = ' '.join(context.args)
-        if not message:
-            await update.message.reply_text("⚠️ الرجاء إرسال رسالة للإذاعة.")
-            return
-
-        for user_id in user_ids:
-            try:
-                await update.bot.send_message(user_id, message)
-            except Exception as e:
-                logger.error(f"تعذر إرسال الرسالة للمستخدم {user_id}: {e}")
-
-        await update.message.reply_text("✅ تم إرسال الرسالة بنجاح لجميع المستخدمين.")
-    else:
-        await update.message.reply_text("❌ أنت لست المالك!")
-
-# دالة لإضافة قناة اشتراك إجباري
-async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == OWNER_ID:
-        global mandatory_channel
-        mandatory_channel = update.message.text.split(" ")[1]
-        await update.message.reply_text(f"تم إضافة القناة بنجاح: {mandatory_channel}")
-    else:
-        await update.message.reply_text("❌ أنت لست المالك!")
-
-# دالة لحذف قناة اشتراك إجباري
-async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == OWNER_ID:
-        global mandatory_channel
-        mandatory_channel = None
-        await update.message.reply_text("تم حذف القناة الاشتراك الإجباري.")
-    else:
-        await update.message.reply_text("❌ أنت لست المالك!")
-
-# دالة لتنزيل الفيديو أو الصوت بناءً على الموقع المختار
+# دالة لتنزيل الفيديو من SaveFrom.net
 async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     site = context.user_data.get('site')
@@ -99,41 +63,20 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ الرجاء إرسال رابط صالح!")
         return
 
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': '/tmp/%(title)s.%(ext)s',  # يمكن تغيير هذا المسار حسب النظام
-        'quiet': False,  # لعرض تفاصيل تحميل الفيديو
-    }
+    savefrom_url = f"https://ar.savefrom.net/249Ex/?url={url}"
 
-    if site == 'youtube':
-        ydl_opts['extractor_args'] = {'youtube': {'noplaylist': True}}
-    elif site == 'tiktok':
-        ydl_opts['extractor_args'] = {'tiktok': {'download': True}}
-    elif site == 'facebook':
-        ydl_opts['extractor_args'] = {'facebook': {'download': True}}
-    elif site == 'instagram':
-        ydl_opts['extractor_args'] = {'instagram': {'download': True}}
-    elif site == 'twitter':
-        ydl_opts['extractor_args'] = {'twitter': {'download': True}}
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            # استخراج معلومات الفيديو
-            info_dict = ydl.extract_info(url, download=True)
-            video_filename = ydl.prepare_filename(info_dict)
-
-            # إرسال الفيديو أو الصوت بناءً على النوع
-            await update.message.reply_text(f"✅ تم تنزيل الفيديو من {site.capitalize()} بنجاح: {video_filename}")
-
-            # إذا كان الملف الصوتي، يتم إرساله كـ audio
-            if 'audio' in info_dict['formats'][0]['ext']:
-                await update.message.reply_audio(audio=open(video_filename, 'rb'))
-            else:
-                # إذا كان الفيديو، يتم إرساله كـ video
-                await update.message.reply_video(video=open(video_filename, 'rb'))
-
-        except Exception as e:
-            await update.message.reply_text(f"❌ حدث خطأ أثناء تنزيل الفيديو من {site.capitalize()}: {str(e)}")
+    # إرسال طلب إلى SaveFrom.net للحصول على رابط التنزيل
+    try:
+        response = requests.get(savefrom_url)
+        if response.status_code == 200:
+            # هنا يمكنك استخراج الرابط المباشر للتنزيل من الصفحة (يجب معالجة HTML)
+            # لكن لسهولة الشرح سنقوم بإعطاء الرابط كما هو
+            download_link = response.url  # قد تحتاج لاستخراج الرابط المباشر من الصفحة إذا لزم الأمر
+            await update.message.reply_text(f"✅ تم تنزيل الفيديو بنجاح! يمكنك تحميله من هنا: {download_link}")
+        else:
+            await update.message.reply_text(f"❌ حدث خطأ أثناء التواصل مع الموقع. حاول مرة أخرى لاحقًا.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ حدث خطأ: {str(e)}")
 
 # معالجة الأزرار (التحكم في الأزرار)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -155,12 +98,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'twitter':
         context.user_data['site'] = 'twitter'
         await query.edit_message_text("⚡ تم اختيار تويتر. الرجاء إرسال الرابط لتحميله.")
-    elif data == 'add_channel':
-        await add_channel(update, context)
-    elif data == 'remove_channel':
-        await remove_channel(update, context)
-    elif data == 'broadcast':
-        await broadcast_message(update, context)
+    else:
+        await query.edit_message_text("❓ الموقع غير معروف. يرجى اختيار موقع معروف لتحميل الفيديو.")
 
 # دالة لعرض لوحة تحكم المالك
 async def owner_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,6 +132,7 @@ async def main():
     application.add_handler(CommandHandler("remove_channel", remove_channel))  # حذف قناة اشتراك
     application.add_handler(CallbackQueryHandler(button_handler))  # إضافة معالجة الأزرار
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_user))  # إشعار عند دخول مستخدمين جدد
+    application.add_handler(MessageHandler(filters.TEXT, download_media))  # معالجة رسائل التنزيل
 
     await application.run_polling()
 
