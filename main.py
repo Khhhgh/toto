@@ -1,231 +1,222 @@
-import os
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
-# تعيين API ID و API Hash و Bot Token بشكل ثابت داخل الكود
-api_id = 10045162  # استبدل هذا بـ API ID الخاص بك
-api_hash = "5b58442987a667be5f6a521f7de4a961"  # استبدل هذا بـ API Hash الخاص بك
-bot_token = "7362214073:AAHfJS5mh7O2xDPTvfVKU3ix35prCeZxgfc"  # استبدل هذا بـ Bot Token الخاص بك
+# إعداد تسجيل الدخول
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# إعداد البوت باستخدام Pyrogram
-app = Client("video_downloader_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+# معرف المالك (يمكنك تعديل هذا بالـ user ID الخاص بالمالك)
+OWNER_ID = 1310488710  # ضع هنا معرف المالك
 
-# قائمة المديرين المسموح لهم بالتحكم
-admins = [8011996271]  # ضع هنا ID المديرين
+# قناة الاشتراك الإجباري
+mandatory_channel = None  # لا توجد قناة بشكل افتراضي
+notify_new_users = True  # إشعار دخول المستخدمين الجدد مفعل بشكل افتراضي
 
-# تأكد من أن مجلد downloads موجود
-if not os.path.exists('downloads'):
-    os.makedirs('downloads')
+# قائمة لتخزين معرفات المستخدمين
+user_ids = set()
 
-# وظيفة لتحميل الفيديو باستخدام yt-dlp
-def download_video(url):
+# دالة لعرض الأزرار للمستخدم
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # تحقق من الاشتراك الإجباري
+    if mandatory_channel:
+        # تحقق من اشتراك المستخدم في القناة
+        member = await update.bot.get_chat_member(mandatory_channel, update.message.from_user.id)
+        if member.status not in ['member', 'administrator']:
+            await update.message.reply_text(f"⚠️ يجب عليك الاشتراك في القناة: {mandatory_channel}\nيمكنك الاشتراك عبر هذا الرابط: https://t.me/{mandatory_channel[1:]}")
+            return
+
+    # إضافة معرف المستخدم إلى القائمة
+    user_ids.add(update.message.from_user.id)
+
+    # الرسالة الترحيبية مع وصف مختصر للبوت مع الإيموجيات
+    welcome_message = (
+        "👋 مرحبًا! أنا بوت لتحميل الفيديوهات 🎥\n\n"
+        "اختر الموقع الذي تريد تنزيل الفيديو منه 💻👇\n\n"
+        "إذا كنت بحاجة إلى المساعدة، تواصل مع المطور عبر الزر أدناه 👨‍💻"
+    )
+    
+    # الأزرار
+    keyboard = [
+        [InlineKeyboardButton("تحميل من يوتيوب 📹", callback_data='youtube')],
+        [InlineKeyboardButton("تحميل من تيك توك 🎶", callback_data='tiktok')],
+        [InlineKeyboardButton("تحميل من فيسبوك 📘", callback_data='facebook')],
+        [InlineKeyboardButton("تحميل من انستجرام 📸", callback_data='instagram')],
+        [InlineKeyboardButton("تحميل من تويتر 🐦", callback_data='twitter')],
+        [InlineKeyboardButton("تواصل مع المطور 📨", url="https://t.me/T_4IJ")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+
+# دالة خاصة لزر /admin للمالك
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id == OWNER_ID:  # تحقق إذا كان المرسل هو المالك فقط
+        keyboard = [
+            [InlineKeyboardButton("إدارة البوت", callback_data='manage_bot')],
+            [InlineKeyboardButton("عرض الإحصائيات", callback_data='view_stats')],
+            [InlineKeyboardButton("إضافة قناة اشتراك إجباري", callback_data='add_channel')],
+            [InlineKeyboardButton("حذف قناة اشتراك إجباري", callback_data='remove_channel')],
+            [InlineKeyboardButton("إرسال إذاعة لجميع المستخدمين", callback_data='broadcast')],
+            [InlineKeyboardButton("تشغيل إشعار دخول المستخدمين" if not notify_new_users else "إيقاف إشعار دخول المستخدمين", callback_data='toggle_notifications')],
+            [InlineKeyboardButton("تواصل مع المطور 📨", url="https://t.me/T_4IJ")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("⚙️ مرحبًا بك في لوحة التحكم الخاصة بالمالك. اختر إحدى الخيارات أدناه:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لإضافة قناة اشتراك إجباري
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id == OWNER_ID:
+        # حفظ القناة الجديدة التي سيتم اشتراك المستخدم فيها
+        global mandatory_channel
+        mandatory_channel = update.message.text.split(" ")[1]
+        await update.message.reply_text(f"تم إضافة القناة بنجاح: {mandatory_channel}")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لحذف قناة اشتراك إجباري
+async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id == OWNER_ID:
+        global mandatory_channel
+        mandatory_channel = None
+        await update.message.reply_text("تم حذف القناة الاشتراك الإجباري.")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لإرسال رسالة إذاعة لجميع المستخدمين
+async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id == OWNER_ID:
+        # النص الذي سيتم إرساله في الإذاعة
+        message = ' '.join(context.args)
+        if not message:
+            await update.message.reply_text("⚠️ الرجاء إرسال رسالة للإذاعة.")
+            return
+        
+        for user_id in user_ids:
+            try:
+                await update.bot.send_message(user_id, message)
+            except Exception as e:
+                logger.error(f"تعذر إرسال الرسالة للمستخدم {user_id}: {e}")
+        
+        await update.message.reply_text("✅ تم إرسال الرسالة بنجاح لجميع المستخدمين.")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لتفعيل أو إيقاف إشعار دخول المستخدمين الجدد
+async def toggle_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global notify_new_users
+    if update.message.from_user.id == OWNER_ID:
+        notify_new_users = not notify_new_users  # التبديل بين التشغيل والإيقاف
+        status = "تشغيل" if notify_new_users else "إيقاف"
+        await update.message.reply_text(f"✅ تم {status} إشعار دخول المستخدمين الجدد.")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة للإشعار عند دخول المستخدمين الجدد
+async def welcome_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if notify_new_users:
+        user_id = update.message.new_chat_members[0].id
+        if user_id != OWNER_ID:
+            await context.bot.send_message(chat_id=OWNER_ID, text=f"🔔 دخل مستخدم جديد إلى البوت: {update.message.new_chat_members[0].full_name}")
+
+# دالة لتنزيل الفيديو أو الصوت بناءً على الموقع المختار
+async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
+    site = context.user_data.get('site')
+
+    if "http" not in url:
+        await update.message.reply_text("⚠️ الرجاء إرسال رابط صالح!")
+        return
+
+    # إعدادات yt-dlp العامة
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',  # حفظ الفيديو في مجلد downloads
-        'quiet': False,
+        'outtmpl': '/tmp/%(title)s.%(ext)s',
     }
+
+    # تخصيص الإعدادات للموقع المختار
+    if site == 'youtube':
+        ydl_opts['extractor_args'] = {'youtube': {'noplaylist': True}}
+    elif site == 'tiktok':
+        ydl_opts['extractor_args'] = {'tiktok': {'download': True}}
+    elif site == 'facebook':
+        ydl_opts['extractor_args'] = {'facebook': {'download': True}}
+    elif site == 'instagram':
+        ydl_opts['extractor_args'] = {'instagram': {'download': True}}
+    elif site == 'twitter':
+        ydl_opts['extractor_args'] = {'twitter': {'download': True}}
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)  # تنزيل الفيديو
-    return info
-
-# دالة لإرسال الأزرار الخاصة بالمالكين
-def get_admin_buttons():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("عرض الفيديوهات المحملة", callback_data="show_downloads")],
-        [InlineKeyboardButton("حذف الفيديوهات", callback_data="delete_downloads")],
-        [InlineKeyboardButton("إيقاف تحميل من يوتيوب", callback_data="disable_youtube")],
-        [InlineKeyboardButton("إيقاف تحميل من إنستجرام", callback_data="disable_instagram")],
-        [InlineKeyboardButton("إعدادات البوت", callback_data="bot_settings")],
-        [InlineKeyboardButton("إضافة قناة اشتراك جباري", callback_data="add_channel")],
-        [InlineKeyboardButton("حذف قناة اشتراك جباري", callback_data="remove_channel")],
-        [InlineKeyboardButton("حظر عضو", callback_data="ban_user")],
-        [InlineKeyboardButton("مساعدة", callback_data="help")],
-    ])
-
-# دالة لإرسال الأزرار الخاصة بالزوار
-def get_visitor_buttons():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("تحميل من يوتيوب", callback_data="download_youtube")],
-        [InlineKeyboardButton("تحميل من إنستجرام", callback_data="download_instagram")],
-        [InlineKeyboardButton("تحميل من تويتر", callback_data="download_twitter")],
-        [InlineKeyboardButton("تحميل من سناب شات", callback_data="download_snapchat")],
-        [InlineKeyboardButton("تحميل من فيسبوك", callback_data="download_facebook")],
-        [InlineKeyboardButton("تحميل من تيك توك", callback_data="download_tiktok")],
-        [InlineKeyboardButton("مساعدة", callback_data="help")],
-    ])
-
-# دالة للتحقق من كون المستخدم مدير
-def is_admin(user_id):
-    return user_id in admins
-
-# دالة للتحقق من اشتراك المستخدم في القنوات المطلوبة
-async def check_subscription(user_id):
-    for channel in required_channels:
         try:
-            chat_member = await app.get_chat_member(channel, user_id)
-            if chat_member.status not in ['member', 'administrator', 'creator']:
-                return False
+            # محاولة تحميل الفيديو
+            info_dict = ydl.extract_info(url, download=True)
+            video_filename = ydl.prepare_filename(info_dict)
+
+            await update.message.reply_text(f"✅ تم تنزيل الفيديو من {site.capitalize()} بنجاح: {video_filename}")
+
+            # إرسال الفيديو أو الصوت للمستخدم
+            if 'audio' in info_dict['formats'][0]['ext']:
+                await update.message.reply_audio(audio=open(video_filename, 'rb'))
+            else:
+                await update.message.reply_video(video=open(video_filename, 'rb'))
+
         except Exception as e:
-            return False
-    return True
+            await update.message.reply_text(f"❌ حدث خطأ أثناء تنزيل الفيديو من {site.capitalize()}: {str(e)}")
 
-# رد على بدء المحادثة مع البوت (رسالة الترحيب)
-@app.on_message(filters.command("start"))
-async def start(client, message):
-    user_first_name = message.from_user.first_name
-    await message.reply(f"مرحبًا {user_first_name}، أنا بوت تنزيل الفيديوهات! اختر الفيديو الذي ترغب في تنزيله من خلال الأزرار أدناه.", reply_markup=get_visitor_buttons())
+# معالجة الأزرار (التحكم في الأزرار)
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
 
-# الرد على رسالة تحتوي على رابط
-@app.on_message(filters.text)
-async def handle_message(client, message):
-    if message.text.startswith("http"):
-        # التحقق من الاشتراك في القنوات الجباريّة
-        if await check_subscription(message.from_user.id):
-            try:
-                video_url = message.text
-                video_info = download_video(video_url)
-
-                # إرسال الفيديو للمستخدم بعد التنزيل
-                if os.path.exists(f"downloads/{video_info['title']}.mp4"):
-                    await message.reply_video(f"downloads/{video_info['title']}.mp4")
-                else:
-                    await message.reply("حدث خطأ أثناء تنزيل الفيديو.")
-                
-                # تحديد الأزرار بناءً على المستخدم (مالك أو زائر)
-                if is_admin(message.from_user.id):
-                    await message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_admin_buttons())
-                else:
-                    await message.reply("تم تنزيل الفيديو بنجاح.", reply_markup=get_visitor_buttons())
-
-            except Exception as e:
-                await message.reply(f"حدث خطأ: {e}")
-        else:
-            await message.reply("أنت بحاجة للاشتراك في القنوات المطلوبة لاستخدام البوت.")
-
-# الرد على الأوامر الخاصة بالمدير
-@app.on_callback_query(filters.regex("add_channel"))
-async def add_channel(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
-
-    await callback_query.answer("يرجى إرسال رابط القناة التي تريد إضافتها.")
-
-@app.on_message(filters.text)
-async def handle_add_channel(message):
-    if message.text.startswith("https://t.me/"):
-        required_channels.append(message.text)
-        await message.reply(f"تم إضافة القناة {message.text} إلى القنوات الجبارة.")
-    else:
-        await message.reply("يرجى إرسال رابط صحيح للقناة.")
-
-@app.on_callback_query(filters.regex("remove_channel"))
-async def remove_channel(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
-
-    await callback_query.answer("يرجى إرسال رابط القناة التي تريد حذفها.")
-
-@app.on_message(filters.text)
-async def handle_remove_channel(message):
-    if message.text in required_channels:
-        required_channels.remove(message.text)
-        await message.reply(f"تم حذف القناة {message.text} من القنوات الجبارة.")
-    else:
-        await message.reply("هذه القناة غير موجودة في القائمة.")
-
-@app.on_callback_query(filters.regex("ban_user"))
-async def ban_user(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
-
-    await callback_query.answer("يرجى إرسال ID العضو الذي تريد حظره.")
-
-@app.on_message(filters.text)
-async def handle_ban_user(message):
-    try:
-        user_id = int(message.text)
-        if user_id not in banned_users:
-            banned_users.append(user_id)
-            await message.reply(f"تم حظر العضو {user_id}.")
-        else:
-            await message.reply(f"العضو {user_id} محظور بالفعل.")
-    except ValueError:
-        await message.reply("يرجى إرسال ID صالح للعضو.")
-
-@app.on_callback_query(filters.regex("show_downloads"))
-async def show_downloads(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
+    if data == 'toggle_notifications':
+        # تبديل حالة الإشعارات
+        global notify_new_users
+        notify_new_users = not notify_new_users
+        status = "تشغيل" if notify_new_users else "إيقاف"
+        await query.edit_message_text(f"✅ تم {status} إشعار دخول المستخدمين الجدد.")
     
-    video_files = os.listdir("downloads/")
-    if video_files:
-        videos = "\n".join(video_files)
-        await callback_query.edit_message_text(f"الفيديوهات المحملة:\n{videos}")
-    else:
-        await callback_query.edit_message_text("لا توجد فيديوهات محملة حاليًا.")
-
-@app.on_callback_query(filters.regex("delete_downloads"))
-async def delete_downloads(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
+    elif data == 'youtube':
+        context.user_data['site'] = 'youtube'
+        await query.edit_message_text("⚡ تم اختيار يوتيوب. الرجاء إرسال الرابط لتحميله.")
     
-    video_files = os.listdir("downloads/")
-    if video_files:
-        for video in video_files:
-            os.remove(f"downloads/{video}")
-        await callback_query.edit_message_text("تم حذف جميع الفيديوهات.")
-    else:
-        await callback_query.edit_message_text("لا توجد فيديوهات لحذفها.")
-
-@app.on_callback_query(filters.regex("disable_youtube"))
-async def disable_youtube(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
+    elif data == 'tiktok':
+        context.user_data['site'] = 'tiktok'
+        await query.edit_message_text("⚡ تم اختيار تيك توك. الرجاء إرسال الرابط لتحميله.")
     
-    await callback_query.edit_message_text("تم إيقاف تحميل الفيديوهات من يوتيوب.")
-
-@app.on_callback_query(filters.regex("disable_instagram"))
-async def disable_instagram(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
+    elif data == 'facebook':
+        context.user_data['site'] = 'facebook'
+        await query.edit_message_text("⚡ تم اختيار فيسبوك. الرجاء إرسال الرابط لتحميله.")
     
-    await callback_query.edit_message_text("تم إيقاف تحميل الفيديوهات من إنستجرام.")
-
-@app.on_callback_query(filters.regex("bot_settings"))
-async def bot_settings(client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("أنت لا تملك صلاحيات للوصول إلى هذه الميزة!")
-        return
+    elif data == 'instagram':
+        context.user_data['site'] = 'instagram'
+        await query.edit_message_text("⚡ تم اختيار انستجرام. الرجاء إرسال الرابط لتحميله.")
     
-    await callback_query.edit_message_text("إعدادات البوت: يمكنك تعديل إعدادات التحميل، اللغة، وأذونات أخرى.")
+    elif data == 'twitter':
+        context.user_data['site'] = 'twitter'
+        await query.edit_message_text("⚡ تم اختيار تويتر. الرجاء إرسال الرابط لتحميله.")
 
-@app.on_callback_query(filters.regex("help"))
-async def help(client, callback_query):
-    help_message = """
-    استخدم الأزرار لاختيار المصدر الذي تريد تحميل الفيديو منه.
-    يمكنك التحكم في إعدادات البوت من خلال لوحة التحكم الخاصة بالمدير:
-    - عرض الفيديوهات المحملة
-    - حذف الفيديوهات المحملة
-    - حظر الأعضاء
-    """
-    await callback_query.edit_message_text(help_message)
+# إعداد البوت
+async def main():
+    # قم بتغيير التوكن الخاص بك هنا
+    application = ApplicationBuilder().token("6477545499:AAHkCgwT5Sn1otiMst_sAOmoAp_QC1_ILzA").build()
 
-# إشعار عند دخول عضو جديد
-@app.on_chat_member_updated()
-async def new_member(client, message):
-    if message.new_chat_member:
-        # إشعار المالك عند دخول عضو جديد
-        for admin in admins:
-            user = await app.get_users(admin)
-            await app.send_message(user.id, f"أهلاً بالعضو الجديد: {message.new_chat_member.user.first_name}")
+    # إضافة الأوامر
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", admin_panel))  # إضافة الأمر /admin للمالك
+    application.add_handler(CommandHandler("add_channel", add_channel))  # إضافة قناة اشتراك
+    application.add_handler(CommandHandler("remove_channel", remove_channel))  # حذف قناة اشتراك
+    application.add_handler(CommandHandler("broadcast", broadcast_message))  # إرسال رسالة إذاعة
+    application.add_handler(CallbackQueryHandler(button_handler))  # إضافة معالجة الأزرار
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_user))  # إشعار عند دخول مستخدمين جدد
 
-# تشغيل البوت
-app.run()
+    # بدء البوت
+    await application.run_polling()
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())
