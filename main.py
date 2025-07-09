@@ -175,6 +175,13 @@ async def owner_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ أنت لست المالك!")
 
+# دالة لإشعار المستخدمين الجدد
+async def welcome_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    new_users = update.message.new_chat_members
+    for user in new_users:
+        welcome_text = f"👋 مرحبًا {user.full_name}! مرحبًا بك في المجموعة."
+        await update.message.reply_text(welcome_text)
+
 # إعداد البوت
 async def main():
     application = ApplicationBuilder().token(TOKEN).build()
