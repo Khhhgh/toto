@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import os
+import uuid
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import yt_dlp
@@ -10,6 +11,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def download_video(url):
+    temp_filename = f"video_{uuid.uuid4()}.%(ext)s"  # اسم ملف مؤقت فريد
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': temp_filename,
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            logger.info(f"جاري تحميل الفيديو من: {url}")
+            ydl.download([url])
+            # البحث عن الملف الذي تم تحميله
+            base_filename = temp_filename.split("%")[0]  # جزء الاسم قبل الامتداد
+            for file in os.listdir('.'):
+                if file.startswith(base_filename) and file.split('.')[-1] in ['mp4', 'mkv', 'webm', 'mov']:
+                    logger.info(f"تم تحميل الملف: {file}")
+                    return file
+        logger.error("لم يتم العثور على الملف بعد التنزيل.")
+        return None
+    except Exception as e:
+        logger.error(f"خطأ في تحميل الفيديو: {e}")
+        return None
+
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     if "http" in user_message:
@@ -17,7 +43,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         try:
             loop = asyncio.get_event_loop()
             file_path = await loop.run_in_executor(None, download_video, user_message)
-            
+
             if file_path:
                 await update.message.reply_video(video=open(file_path, 'rb'))
                 os.remove(file_path)  # حذف الملف بعد الإرسال
@@ -28,26 +54,6 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text("❌ حدث خطأ أثناء معالجة الفيديو.")
     else:
         await update.message.reply_text("📥 الرجاء إرسال رابط فيديو صالح.")
-
-def download_video(url):
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': 'video.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
-        'noplaylist': True,
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-            # نبحث عن الملف الذي تم تنزيله
-            for file in os.listdir('.'):
-                if file.startswith('video.') and file.endswith(('.mp4', '.mkv', '.webm', '.mov')):
-                    return file
-        return None
-    except Exception as e:
-        logger.error(f"خطأ في تحميل الفيديو: {e}")
-        return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 أهلاً! أرسل رابط الفيديو ليتم تحميله وإرساله مباشرة.")
