@@ -1,70 +1,235 @@
+import json
 import logging
-import asyncio
+import re
 import os
-import uuid
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import asyncio
 import yt_dlp
+import nest_asyncio
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+
+nest_asyncio.apply()
+
+BOT_TOKEN = "6477545499:AAHkCgwT5Sn1otiMst_sAOmoAp_QC1_ILzA"
+OWNER_ID = 1310488710
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
-def download_video(url):
-    temp_filename = f"video_{uuid.uuid4()}.%(ext)s"  # اسم ملف مؤقت فريد
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': temp_filename,
-        'quiet': True,
-        'no_warnings': True,
-        'noplaylist': True,
-    }
+USERS_FILE = "users.json"
+CONFIG_FILE = "config.json"
+
+def load_users():
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            logger.info(f"جاري تحميل الفيديو من: {url}")
-            ydl.download([url])
-            # البحث عن الملف الذي تم تحميله
-            base_filename = temp_filename.split("%")[0]  # جزء الاسم قبل الامتداد
-            for file in os.listdir('.'):
-                if file.startswith(base_filename) and file.split('.')[-1] in ['mp4', 'mkv', 'webm', 'mov']:
-                    logger.info(f"تم تحميل الملف: {file}")
-                    return file
-        logger.error("لم يتم العثور على الملف بعد التنزيل.")
-        return None
-    except Exception as e:
-        logger.error(f"خطأ في تحميل الفيديو: {e}")
-        return None
+        with open(USERS_FILE, "r") as f:
+            return set(json.load(f))
+    except:
+        return set()
 
-async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
-    if "http" in user_message:
-        await update.message.reply_text("⏳ جاري تحميل الفيديو...")
-        try:
-            loop = asyncio.get_event_loop()
-            file_path = await loop.run_in_executor(None, download_video, user_message)
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(list(users), f)
 
-            if file_path:
-                await update.message.reply_video(video=open(file_path, 'rb'))
-                os.remove(file_path)  # حذف الملف بعد الإرسال
-            else:
-                await update.message.reply_text("❌ لم أتمكن من تحميل الفيديو.")
-        except Exception as e:
-            logger.error(f"خطأ أثناء تحميل أو إرسال الفيديو: {e}")
-            await update.message.reply_text("❌ حدث خطأ أثناء معالجة الفيديو.")
-    else:
-        await update.message.reply_text("📥 الرجاء إرسال رابط فيديو صالح.")
+def load_config():
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"sub_channels": []}  # قائمة القنوات
+
+def save_config(config):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f)
+
+users = load_users()
+config = load_config()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 أهلاً! أرسل رابط الفيديو ليتم تحميله وإرساله مباشرة.")
+    user_id = update.effective_user.id
 
-def main():
-    application = Application.builder().token("6477545499:AAHkCgwT5Sn1otiMst_sAOmoAp_QC1_ILzA").build()
+    # تحقق الاشتراك في القنوات واحدة تلو الأخرى
+    sub_channels = config.get("sub_channels", [])
+    for channel in sub_channels:
+        try:
+            member = await context.bot.get_chat_member(channel, user_id)
+            if member.status not in ["member", "creator", "administrator"]:
+                # المستخدم غير مشترك في هذه القناة، اطلب الاشتراك مع زر
+                keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton(f"اشترك في {channel}", url=f"https://t.me/{channel.lstrip('@')}")]]
+                )
+                await update.message.reply_text(
+                    f"🔔 عزيزي @{update.effective_user.username or update.effective_user.first_name}\n"
+                    "يرجى الاشتراك في القناة التالية أولًا:",
+                    reply_markup=keyboard
+                )
+                return
+        except Exception:
+            await update.message.reply_text(
+                "❌ حدث خطأ في التحقق من الاشتراك. تأكد أن البوت مشرف في القنوات."
+            )
+            return
+
+    # إذا كان مشترك في كل القنوات، أرسل الترحيب مع زر تواصل
+    welcome_text = f"""
+🌝 أهلاً بك عزيزي @{update.effective_user.username or update.effective_user.first_name}
+
+🍂 هذا البوت يساعدك على تحميل مقاطع الفيديو بسهولة وسرعة.
+
+🍁 أرسل الرابط فقط، وأنا أرسل لك الفيديو مباشرة!
+    """
+    contact_button = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📞 تواصل مع المالك", url="https://t.me/T_4IJ")]]
+    )
+    await update.message.reply_text(welcome_text, reply_markup=contact_button)
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("❌ أنت لست مالك البوت.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("➕ إضافة قناة اشتراك", callback_data="add_sub_channel")],
+        [InlineKeyboardButton("➖ حذف قناة اشتراك", callback_data="del_sub_channel")],
+        [InlineKeyboardButton("📢 إرسال إذاعة", callback_data="broadcast")],
+        [InlineKeyboardButton("📊 عرض الإحصائيات", callback_data="stats")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("لوحة الأدمن:", reply_markup=reply_markup)
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if user_id != OWNER_ID:
+        await query.edit_message_text("❌ أنت لست مالك البوت.")
+        return
+
+    data = query.data
+
+    if data == "add_sub_channel":
+        await query.edit_message_text("أرسل معرف القناة لإضافتها (مثلاً @channelusername):")
+        context.user_data["action"] = "add_sub_channel"
+
+    elif data == "del_sub_channel":
+        # عرض قائمة القنوات مع أزرار للحذف
+        sub_channels = config.get("sub_channels", [])
+        if not sub_channels:
+            await query.edit_message_text("لا توجد قنوات مضافة حالياً.")
+            return
+        buttons = [
+            [InlineKeyboardButton(ch, callback_data=f"del_chan|{ch}")]
+            for ch in sub_channels
+        ]
+        buttons.append([InlineKeyboardButton("⬅️ رجوع", callback_data="admin_back")])
+        await query.edit_message_text("اختر قناة للحذف:", reply_markup=InlineKeyboardMarkup(buttons))
+        context.user_data["action"] = None
+
+    elif data.startswith("del_chan|"):
+        channel_to_del = data.split("|",1)[1]
+        sub_channels = config.get("sub_channels", [])
+        if channel_to_del in sub_channels:
+            sub_channels.remove(channel_to_del)
+            config["sub_channels"] = sub_channels
+            save_config(config)
+            await query.edit_message_text(f"تم حذف القناة {channel_to_del}")
+        else:
+            await query.edit_message_text("القناة غير موجودة.")
+
+    elif data == "broadcast":
+        await query.edit_message_text("أرسل الآن نص الإذاعة:")
+        context.user_data["action"] = "broadcast"
+
+    elif data == "stats":
+        await query.edit_message_text(f"عدد المستخدمين: {len(users)}")
+
+    elif data == "admin_back":
+        # الرجوع للوحة الأدمن
+        await admin(update, context)
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+
+    if user_id not in users:
+        users.add(user_id)
+        save_users(users)
+
+    action = context.user_data.get("action")
+
+    if action == "add_sub_channel":
+        if not text.startswith("@"):
+            await update.message.reply_text("❌ يجب أن يبدأ معرف القناة بـ @")
+            return
+        sub_channels = config.get("sub_channels", [])
+        if text in sub_channels:
+            await update.message.reply_text("❌ القناة مضافة سابقاً.")
+            return
+        sub_channels.append(text)
+        config["sub_channels"] = sub_channels
+        save_config(config)
+        context.user_data["action"] = None
+        await update.message.reply_text(f"✅ تم إضافة قناة الاشتراك: {text}")
+
+    elif action == "broadcast":
+        count = 0
+        for uid in users:
+            try:
+                await context.bot.send_message(chat_id=uid, text=text)
+                count += 1
+            except Exception:
+                pass
+        context.user_data["action"] = None
+        await update.message.reply_text(f"✅ تم إرسال الإذاعة إلى {count} مستخدم.")
+
+    else:
+        # إذا النص يحتوي رابط فيديو (يوتيوب، تيك توك، ...)، نبدأ تنزيل الفيديو
+        url_pattern = r"(https?://[^\s]+)"
+        urls = re.findall(url_pattern, text)
+        if urls:
+            await update.message.reply_text("⏳ انتظر قليلًا 🥀..")
+            video_url = urls[0]
+
+            ydl_opts = {
+                "format": "mp4",
+                "outtmpl": "downloaded_video.%(ext)s",
+                "quiet": True,
+                "no_warnings": True,
+            }
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([video_url])
+                video_path = "downloaded_video.mp4"
+
+                if os.path.exists(video_path):
+                    with open(video_path, "rb") as video_file:
+                        await update.message.reply_video(video_file)
+                    os.remove(video_path)
+                else:
+                    await update.message.reply_text("❌ لم أتمكن من تحميل الفيديو.")
+            except Exception as e:
+                await update.message.reply_text(f"❌ حدث خطأ أثناء تحميل الفيديو.\n{e}")
+
+async def main():
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
+    application.add_handler(CommandHandler("admin", admin))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
 
-    application.run_polling(timeout=30)
+    await application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
