@@ -1,11 +1,11 @@
 import logging
-import asyncio
-import nest_asyncio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
+import asyncio
+import nest_asyncio
 
-# تفعيل nest_asyncio لتفادي مشكلة "This event loop is already running"
+# تفعيل nest_asyncio لتجنب مشاكل في بعض بيئات التنفيذ
 nest_asyncio.apply()
 
 # إعدادات التسجيل
@@ -108,7 +108,8 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ydl_opts = {
         'format': 'best',
-        'outtmpl': '/tmp/%(title)s.%(ext)s',
+        'outtmpl': '/tmp/%(title)s.%(ext)s',  # يمكن تغيير هذا المسار حسب النظام
+        'quiet': False,  # لعرض تفاصيل تحميل الفيديو
     }
 
     if site == 'youtube':
@@ -157,6 +158,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'twitter':
         context.user_data['site'] = 'twitter'
         await query.edit_message_text("⚡ تم اختيار تويتر. الرجاء إرسال الرابط لتحميله.")
+    elif data == 'add_channel':
+        await add_channel(update, context)
+    elif data == 'remove_channel':
+        await remove_channel(update, context)
+    elif data == 'broadcast':
+        await broadcast_message(update, context)
 
 # دالة لعرض لوحة تحكم المالك
 async def owner_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -186,4 +193,4 @@ async def main():
     await application.run_polling()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(main())
