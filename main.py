@@ -1,4 +1,6 @@
 import logging
+import signal
+import sys
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
@@ -217,6 +219,15 @@ async def main():
     # بدء البوت
     await application.run_polling()
 
+# التعامل مع إغلاق البوت بشكل صحيح
+def handle_exit(signum, frame):
+    print("Shutting down gracefully...")
+    sys.exit(0)
+
+# تسجيل الإشارة لإغلاق البوت
+signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTERM, handle_exit)
+
 if __name__ == '__main__':
     import asyncio
-    asyncio.run(main())  # لا حاجة لتغيير هذا في حالتك
+    asyncio.run(main())
