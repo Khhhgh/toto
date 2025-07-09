@@ -1,7 +1,7 @@
 import logging
-import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+import requests
 import asyncio
 import nest_asyncio
 
@@ -54,7 +54,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
-# دالة لتنزيل الفيديو من SaveFrom.net
+# دالة لإرسال رسالة إذاعة لجميع المستخدمين
+async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id == OWNER_ID:
+        message = ' '.join(context.args)
+        if not message:
+            await update.message.reply_text("⚠️ الرجاء إرسال رسالة للإذاعة.")
+            return
+
+        for user_id in user_ids:
+            try:
+                await update.bot.send_message(user_id, message)
+            except Exception as e:
+                logger.error(f"تعذر إرسال الرسالة للمستخدم {user_id}: {e}")
+
+        await update.message.reply_text("✅ تم إرسال الرسالة بنجاح لجميع المستخدمين.")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لإضافة قناة اشتراك إجباري
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id == OWNER_ID:
+        global mandatory_channel
+        mandatory_channel = update.message.text.split(" ")[1]
+        await update.message.reply_text(f"تم إضافة القناة بنجاح: {mandatory_channel}")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لحذف قناة اشتراك إجباري
+async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id == OWNER_ID:
+        global mandatory_channel
+        mandatory_channel = None
+        await update.message.reply_text("تم حذف القناة الاشتراك الإجباري.")
+    else:
+        await update.message.reply_text("❌ أنت لست المالك!")
+
+# دالة لتنزيل الفيديو أو الصوت بناءً على الموقع المختار
 async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     site = context.user_data.get('site')
@@ -63,20 +99,28 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ الرجاء إرسال رابط صالح!")
         return
 
-    savefrom_url = f"https://ar.savefrom.net/249Ex/?url={url}"
-
-    # إرسال طلب إلى SaveFrom.net للحصول على رابط التنزيل
     try:
-        response = requests.get(savefrom_url)
+        if site == 'youtube':
+            download_url = f"https://ar.savefrom.net/249Ex/?url={url}"
+        elif site == 'tiktok':
+            download_url = f"https://ar.savefrom.net/249Ex/?url={url}"
+        elif site == 'facebook':
+            download_url = f"https://ar.savefrom.net/249Ex/?url={url}"
+        elif site == 'instagram':
+            download_url = f"https://ar.savefrom.net/249Ex/?url={url}"
+        elif site == 'twitter':
+            download_url = f"https://ar.savefrom.net/249Ex/?url={url}"
+
+        response = requests.get(download_url)
+
         if response.status_code == 200:
-            # هنا يمكنك استخراج الرابط المباشر للتنزيل من الصفحة (يجب معالجة HTML)
-            # لكن لسهولة الشرح سنقوم بإعطاء الرابط كما هو
-            download_link = response.url  # قد تحتاج لاستخراج الرابط المباشر من الصفحة إذا لزم الأمر
-            await update.message.reply_text(f"✅ تم تنزيل الفيديو بنجاح! يمكنك تحميله من هنا: {download_link}")
+            video_url = response.url  # رابط التنزيل النهائي
+            await update.message.reply_text(f"✅ تم تنزيل الفيديو بنجاح: {video_url}")
         else:
-            await update.message.reply_text(f"❌ حدث خطأ أثناء التواصل مع الموقع. حاول مرة أخرى لاحقًا.")
+            await update.message.reply_text("❌ حدث خطأ أثناء تنزيل الفيديو.")
+
     except Exception as e:
-        await update.message.reply_text(f"❌ حدث خطأ: {str(e)}")
+        await update.message.reply_text(f"❌ حدث خطأ أثناء تنزيل الفيديو: {str(e)}")
 
 # معالجة الأزرار (التحكم في الأزرار)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,8 +142,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'twitter':
         context.user_data['site'] = 'twitter'
         await query.edit_message_text("⚡ تم اختيار تويتر. الرجاء إرسال الرابط لتحميله.")
-    else:
-        await query.edit_message_text("❓ الموقع غير معروف. يرجى اختيار موقع معروف لتحميل الفيديو.")
+    elif data == 'add_channel':
+        await add_channel(update, context)
+    elif data == 'remove_channel':
+        await remove_channel(update, context)
+    elif data == 'broadcast':
+        await broadcast_message(update, context)
 
 # دالة لعرض لوحة تحكم المالك
 async def owner_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -114,13 +162,6 @@ async def owner_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ أنت لست المالك!")
 
-# دالة لإشعار المستخدمين الجدد
-async def welcome_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    new_users = update.message.new_chat_members
-    for user in new_users:
-        welcome_text = f"👋 مرحبًا {user.full_name}! مرحبًا بك في المجموعة."
-        await update.message.reply_text(welcome_text)
-
 # إعداد البوت
 async def main():
     application = ApplicationBuilder().token(TOKEN).build()
@@ -132,7 +173,6 @@ async def main():
     application.add_handler(CommandHandler("remove_channel", remove_channel))  # حذف قناة اشتراك
     application.add_handler(CallbackQueryHandler(button_handler))  # إضافة معالجة الأزرار
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_user))  # إشعار عند دخول مستخدمين جدد
-    application.add_handler(MessageHandler(filters.TEXT, download_media))  # معالجة رسائل التنزيل
 
     await application.run_polling()
 
