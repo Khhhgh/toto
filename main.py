@@ -1,91 +1,64 @@
 import logging
-import time
 import asyncio
+import os
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import yt_dlp
 
-# إعدادات السجلات
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# إعدادات Selenium لـ Chrome
-chrome_options = Options()
-chrome_options.add_argument('--headless')  # تشغيل المتصفح بدون واجهة
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-dev-shm-usage')
-
-# دالة لتحميل الفيديو من موقع SaveFrom.net
-def get_video_url(url):
-    driver = None
-    try:
-        # تحميل أحدث إصدار من chromedriver
-        driver_path = ChromeDriverManager().install()
-
-        driver = webdriver.Chrome(service=ChromeService(driver_path), options=chrome_options)
-        driver.get(f"https://ar.savefrom.net/249Ex/?url={url}")
-
-        logger.info(f"فتح الرابط: {url}")
-        
-        time.sleep(5)  # زيادة الانتظار للتأكد من تحميل الصفحة بشكل صحيح
-
-        # محاولة إيجاد زر التحميل
-        try:
-            download_button = driver.find_element(By.XPATH, '//button[@class="btn btn-success"]')
-            download_button.click()
-
-            time.sleep(2)
-
-            # استخراج رابط الفيديو
-            download_link = driver.find_element(By.XPATH, '//a[@id="downloadButton"]')
-            video_url = download_link.get_attribute('href')
-
-            logger.info(f"تم العثور على رابط الفيديو: {video_url}")
-            return video_url
-        except Exception as e:
-            logger.error(f"فشل العثور على زر التحميل أو رابط الفيديو: {str(e)}")
-            return None
-    except Exception as e:
-        logger.error(f"حدث خطأ أثناء تحميل الرابط: {str(e)}")
-        return None
-    finally:
-        if driver:
-            driver.quit()  # التأكد من إغلاق المتصفح بعد الاستخدام
-
-# دالة للتعامل مع الرسائل
-async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    if "https://" in user_message:  # التأكد من وجود رابط
-        video_url = await asyncio.to_thread(get_video_url, user_message)
-        if video_url:
-            await update.message.reply_text(f"رابط الفيديو: {video_url}")
-        else:
-            await update.message.reply_text("حدث خطأ أثناء محاولة تحميل الفيديو.")
+    if "http" in user_message:
+        await update.message.reply_text("⏳ جاري تحميل الفيديو...")
+        try:
+            loop = asyncio.get_event_loop()
+            file_path = await loop.run_in_executor(None, download_video, user_message)
+            
+            if file_path:
+                await update.message.reply_video(video=open(file_path, 'rb'))
+                os.remove(file_path)  # حذف الملف بعد الإرسال
+            else:
+                await update.message.reply_text("❌ لم أتمكن من تحميل الفيديو.")
+        except Exception as e:
+            logger.error(f"خطأ أثناء تحميل أو إرسال الفيديو: {e}")
+            await update.message.reply_text("❌ حدث خطأ أثناء معالجة الفيديو.")
     else:
-        await update.message.reply_text("الرجاء إرسال رابط الفيديو من SaveFrom.net.")
+        await update.message.reply_text("📥 الرجاء إرسال رابط فيديو صالح.")
 
-# دالة لبدء التفاعل مع البوت
+def download_video(url):
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': 'video.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+            # نبحث عن الملف الذي تم تنزيله
+            for file in os.listdir('.'):
+                if file.startswith('video.') and file.endswith(('.mp4', '.mkv', '.webm', '.mov')):
+                    return file
+        return None
+    except Exception as e:
+        logger.error(f"خطأ في تحميل الفيديو: {e}")
+        return None
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أهلاً! أرسل رابط الفيديو من SaveFrom.net لتحميله.")
+    await update.message.reply_text("👋 أهلاً! أرسل رابط الفيديو ليتم تحميله وإرساله مباشرة.")
 
-# دالة لبدء البوت
 def main():
-    # إنشاء تطبيق البوت
     application = Application.builder().token("6477545499:AAHkCgwT5Sn1otiMst_sAOmoAp_QC1_ILzA").build()
 
-    # إضافة معالج للأوامر
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
 
-    # إضافة معالج للمحتوى النصي
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
+    application.run_polling(timeout=30)
 
-    # تشغيل البوت
-    application.run_polling()
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
