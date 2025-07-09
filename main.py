@@ -56,6 +56,15 @@ config = load_config()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
+    # إشعار للمالك عند دخول عضو جديد
+    await context.bot.send_message(
+        OWNER_ID,
+        f"🆕 عضو جديد دخل البوت:\n\n"
+        f"👤 الاسم: {update.effective_user.full_name}\n"
+        f"🆔 الايدي: {user_id}\n"
+        f"📛 اليوزر: @{update.effective_user.username or 'لايوجد'}"
+    )
+
     # تحقق الاشتراك في القنوات واحدة تلو الأخرى
     sub_channels = config.get("sub_channels", [])
     for channel in sub_channels:
@@ -122,7 +131,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["action"] = "add_sub_channel"
 
     elif data == "del_sub_channel":
-        # عرض قائمة القنوات مع أزرار للحذف
         sub_channels = config.get("sub_channels", [])
         if not sub_channels:
             await query.edit_message_text("لا توجد قنوات مضافة حالياً.")
@@ -154,7 +162,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"عدد المستخدمين: {len(users)}")
 
     elif data == "admin_back":
-        # الرجوع للوحة الأدمن
         await admin(update, context)
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,7 +200,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ تم إرسال الإذاعة إلى {count} مستخدم.")
 
     else:
-        # إذا النص يحتوي رابط فيديو (يوتيوب، تيك توك، ...)، نبدأ تنزيل الفيديو
         url_pattern = r"(https?://[^\s]+)"
         urls = re.findall(url_pattern, text)
         if urls:
@@ -201,11 +207,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             video_url = urls[0]
 
             ydl_opts = {
-                "format": "mp4",
-                "outtmpl": "downloaded_video.%(ext)s",
-                "quiet": True,
-                "no_warnings": True,
-            }
+    "format": "mp4",
+    "outtmpl": "downloaded_video.%(ext)s",
+    "quiet": True,
+    "no_warnings": True,
+    "http_timeout": 30,   # زيادة المهلة إلى 30 ثانية
+}
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -229,7 +236,11 @@ async def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
 
-    await application.run_polling()
+    # تعديل هنا لتشغيل بدون إغلاق حلقة asyncio
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
