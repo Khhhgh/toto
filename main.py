@@ -1,9 +1,7 @@
 import logging
-import signal
-import sys
+import yt_dlp
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-import yt_dlp
 
 # إعداد تسجيل الدخول
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -11,7 +9,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # معرف المالك (يمكنك تعديل هذا بالـ user ID الخاص بالمالك)
-OWNER_ID = 1310488710  # ضع هنا معرف المالك
+OWNER_ID = 1310488710  # معرف المالك
 
 # قناة الاشتراك الإجباري
 mandatory_channel = None  # لا توجد قناة بشكل افتراضي
@@ -218,15 +216,6 @@ async def main():
 
     # بدء البوت
     await application.run_polling()
-
-# التعامل مع إغلاق البوت بشكل صحيح
-def handle_exit(signum, frame):
-    print("Shutting down gracefully...")
-    sys.exit(0)
-
-# تسجيل الإشارة لإغلاق البوت
-signal.signal(signal.SIGINT, handle_exit)
-signal.signal(signal.SIGTERM, handle_exit)
 
 if __name__ == '__main__':
     import asyncio
