@@ -2,6 +2,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
+import os
 import asyncio
 import nest_asyncio
 
@@ -106,12 +107,14 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ الرجاء إرسال رابط صالح!")
         return
 
+    # تعريف خيارات yt-dlp
     ydl_opts = {
         'format': 'best',
-        'outtmpl': '/tmp/%(title)s.%(ext)s',  # يمكن تغيير هذا المسار حسب النظام
-        'quiet': False,  # لعرض تفاصيل تحميل الفيديو
+        'outtmpl': os.path.join(os.getcwd(), '%(title)s.%(ext)s'),  # حفظ الفيديو في المسار الحالي
+        'quiet': False,  # لعرض تفاصيل التحميل
     }
 
+    # تخصيص الإعدادات بناءً على الموقع المختار
     if site == 'youtube':
         ydl_opts['extractor_args'] = {'youtube': {'noplaylist': True}}
     elif site == 'tiktok':
@@ -123,6 +126,7 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif site == 'twitter':
         ydl_opts['extractor_args'] = {'twitter': {'download': True}}
 
+    # تحميل الفيديو باستخدام yt-dlp
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info_dict = ydl.extract_info(url, download=True)
@@ -136,6 +140,7 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_video(video=open(video_filename, 'rb'))
 
         except Exception as e:
+            logger.error(f"Error during download: {e}")
             await update.message.reply_text(f"❌ حدث خطأ أثناء تنزيل الفيديو من {site.capitalize()}: {str(e)}")
 
 # معالجة الأزرار (التحكم في الأزرار)
